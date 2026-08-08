@@ -1,0 +1,4 @@
+lap_number,lap_time_seconds,start_timestamp_seconds,end_timestamp_seconds
+1,92.431,0,92.431
+2,91.882,92.431,184.313
+3,92.106,184.313,276.419

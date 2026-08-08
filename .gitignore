@@ -1,0 +1,10 @@
+.env
+backend/.env
+backend/pitsense.db
+backend/*.db
+backend/uploads/
+backend/**/__pycache__/
+frontend/node_modules/
+frontend/.next/
+frontend/coverage/
+*.pyc

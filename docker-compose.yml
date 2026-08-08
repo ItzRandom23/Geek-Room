@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pitsense}
+      POSTGRES_USER: ${POSTGRES_USER:-pitsense}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes: [pitsense-postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [pitsense-redis:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    ports: ["8000:8000"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://pitsense:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-pitsense}
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /app/data/uploads
+    volumes: [pitsense-data:/app/data]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build: ./backend
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://pitsense:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-pitsense}
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /app/data/uploads
+    volumes: [pitsense-data:/app/data]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  frontend:
+    build: ./frontend
+    ports: ["3000:3000"]
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}
+    depends_on:
+      backend: {condition: service_healthy}
+
+volumes:
+  pitsense-postgres:
+  pitsense-redis:
+  pitsense-data:
