@@ -33,10 +33,13 @@ flowchart LR
 The defaults are environment-configurable Hugging Face model IDs:
 
 - `openai/whisper-tiny` for multilingual speech-to-text with automatic language handling.
-- `superb/wav2vec2-base-superb-er` for audio emotion recognition.
+- `superb/wav2vec2-base-superb-er` as the generic audio-emotion fallback.
 - `j-hartmann/emotion-english-distilroberta-base` for optional transcript emotion support.
+- `microsoft/wavlm-base-plus` for frozen embeddings in the trainable race-radio classifier.
 
 Models are loaded by the backend with `transformers` and `torch`. Set `HF_TOKEN` for gated/private models if you replace the defaults.
+
+For domain training, provide a speaker-labeled CSV and run `python -m app.ml.train --manifest <path>`. PitSense promotes the generated artifact only when the untouched speaker-held-out test set reaches the configured 99% balanced-accuracy and macro-F1 gate. Until then, the generic model remains active and the UI does not claim 99%. See [model training](docs/model-training.md).
 
 The dependency pin uses PyTorch `>=2.6,<3` because the supplied Python 3.13 runtime does not have a compatible wheel for PyTorch 2.5.1; the requested PyTorch/Transformers stack is otherwise unchanged. Whisper handles multilingual speech; the optional text-emotion model is strongest for English, while audio emotion remains the primary signal for every language.
 

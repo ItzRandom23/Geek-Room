@@ -8,8 +8,11 @@ class Settings(BaseSettings):
     hf_stt_model: str = "openai/whisper-tiny"
     hf_audio_emotion_model: str = "superb/wav2vec2-base-superb-er"
     hf_text_emotion_model: str = "j-hartmann/emotion-english-distilroberta-base"
+    hf_embedding_model: str = "microsoft/wavlm-base-plus"
+    emotion_artifact_dir: str = "./artifacts/emotion"
+    emotion_target_accuracy: float = 0.99
     max_upload_mb: int = 25
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     upload_dir: str = "./uploads"
     demo_mode: bool = True
     auth_required: bool = False
@@ -23,7 +26,7 @@ class Settings(BaseSettings):
     s3_endpoint_url: str | None = None
     retention_days: int = 30
     max_audio_duration_seconds: int = 900
-    analysis_version: str = "2026.08.05"
+    analysis_version: str = "2026.08.09"
     model_timeout_seconds: int = 300
     environment: str = "development"
     clamscan_command: str | None = None
