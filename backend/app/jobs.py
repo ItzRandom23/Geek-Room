@@ -11,12 +11,13 @@ import logging
 import threading
 import time
 from datetime import datetime, timezone
+from sqlalchemy import update
 
 from .config import get_settings
 from .database import SessionLocal
 from .models import AnalysisJob, AudioClip, EmotionResult, Insight, Session, TranscriptSegment
 from .services.analysis import Event, build_report, urgency_score
-from .services.ai import serialize_raw
+from .services.ai import emotion_model_status, serialize_raw
 from .services.audio import resolve_audio
 from .storage import get_storage
 
@@ -26,17 +27,39 @@ storage = get_storage()
 _provider_bundle = None
 _provider_factory = None
 
+ANALYSIS_PHASE_PROGRESS = {
+    "queued": 0,
+    "decoding": 10,
+    "transcribing": 24,
+    "extracting_features": 46,
+    "classifying": 68,
+    "calibrating": 82,
+    "correlating": 90,
+    "completed": 100,
+}
+
+
+class AnalysisCancelled(RuntimeError):
+    pass
+
 
 def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _set_phase(db, job: AnalysisJob, session: Session, phase: str, progress: int) -> None:
-    job.status = "running"
-    job.phase = phase
-    job.progress = progress
+    result = db.execute(
+        update(AnalysisJob)
+        .where(AnalysisJob.id == job.id, AnalysisJob.status.notin_(["cancelled", "completed"]))
+        .values(status="running", phase=phase, progress=progress)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 0:
+        db.rollback()
+        raise AnalysisCancelled("Analysis was cancelled by the user.")
     session.status = "analysing"
     db.commit()
+    db.refresh(job)
 
 
 def _active_clip(session: Session) -> AudioClip | None:
@@ -47,25 +70,29 @@ def _active_clip(session: Session) -> AudioClip | None:
     return max(session.audio_clips, key=lambda clip: clip.uploaded_at, default=None)
 
 
-def _run_inference(db, session: Session, clip: AudioClip) -> None:
+def _run_inference(db, session: Session, clip: AudioClip, job: AnalysisJob) -> None:
     # Import through app.main at execution time so tests and deployments can
     # replace the provider factory without constructing models per request.
     from .main import build_provider_bundle
 
     with storage.materialize(clip.stored_filename) as path:
-        return _run_inference_from_path(db, session, clip, path)
+        return _run_inference_from_path(db, session, clip, path, job)
 
 
-def _run_inference_from_path(db, session, clip, path) -> None:
+def _run_inference_from_path(db, session, clip, path, job: AnalysisJob | None = None) -> None:
     from .main import build_provider_bundle
     global _provider_bundle, _provider_factory
     if _provider_bundle is None or _provider_factory is not build_provider_bundle:
         _provider_bundle = build_provider_bundle(settings)
         _provider_factory = build_provider_bundle
     providers = _provider_bundle
+    if job is not None:
+        _set_phase(db, job, session, "transcribing", ANALYSIS_PHASE_PROGRESS["transcribing"])
     transcription = providers.stt.transcribe(path)
     if not transcription.transcript.strip():
         raise RuntimeError("EMPTY_TRANSCRIPT: Speech-to-text returned an empty transcript.")
+    if job is not None:
+        _set_phase(db, job, session, "extracting_features", ANALYSIS_PHASE_PROGRESS["extracting_features"])
     emotion_windows = providers.audio_emotion.analyse(path)
 
     for segment in list(clip.transcript_segments):
@@ -97,27 +124,39 @@ def _run_inference_from_path(db, session, clip, path) -> None:
     db.flush()
 
     text_scores = {}
+    if job is not None:
+        _set_phase(db, job, session, "classifying", ANALYSIS_PHASE_PROGRESS["classifying"])
     try:
         text_scores = providers.text_emotion.analyse(transcription.transcript)
     except Exception as exc:
         logger.warning("Optional text-emotion model unavailable: %s", type(exc).__name__)
 
+    if job is not None:
+        _set_phase(db, job, session, "calibrating", ANALYSIS_PHASE_PROGRESS["calibrating"])
     for window in emotion_windows:
         related = next((segment for segment in segments if segment.start_seconds <= window.start <= segment.end_seconds), None)
         excerpt = related.text if related else ""
         urgency = urgency_score(excerpt)
-        confidence = min(1.0, window.confidence * 0.8 + text_scores.get(window.label, 0) * 0.1 + urgency * 0.1)
-        label = "urgent" if urgency >= 1 and window.label in {"stressed", "frustrated", "urgent"} else window.label
+        if hasattr(providers.audio_emotion, "fuse"):
+            label, confidence, fused_scores = providers.audio_emotion.fuse(window.scores, text_scores, urgency)
+            source = "trained_audio+text"
+        else:
+            label = "urgent" if urgency >= 1 and window.label in {"stressed", "frustrated", "urgent"} else window.label
+            confidence = window.confidence
+            fused_scores = window.scores
+            source = "audio-baseline"
+        raw = dict(window.raw)
+        raw.update({"fused_scores": fused_scores, "text_scores": text_scores, "urgency": urgency})
         db.add(EmotionResult(
             clip_id=clip.id,
             segment_id=related.id if related else None,
             normalized_label=label,
             raw_label=window.raw_label,
             confidence=round(confidence, 4),
-            source="audio+text" if text_scores else "audio",
+            source=source,
             start_seconds=window.start,
             end_seconds=window.end,
-            raw_output_json=serialize_raw(window.raw),
+            raw_output_json=serialize_raw(raw),
         ))
     clip.detected_language = transcription.language or "auto"
     clip.processing_status = "analysed"
@@ -143,6 +182,7 @@ def _report(session: Session, mode: str, processing_time_ms: int | None = None) 
     ]
     laps = sorted(session.laps, key=lambda row: row.lap_number) if mode == "lap_correlated" else []
     report = build_report(events, laps, transcript)
+    model_status = emotion_model_status(settings)
     report.update({
         "analysis_mode": mode,
         "correlation_available": bool(mode == "lap_correlated" and laps),
@@ -150,12 +190,16 @@ def _report(session: Session, mode: str, processing_time_ms: int | None = None) 
         "provenance": {
             "models": {
                 "stt": settings.hf_stt_model,
-                "audio_emotion": settings.hf_audio_emotion_model,
+                "audio_emotion": model_status["model"],
                 "text_emotion": settings.hf_text_emotion_model,
             },
             "language": clip.detected_language or "auto",
             "generated_at": now().isoformat(),
             "analysis_version": settings.analysis_version,
+            "model_version": model_status["model_version"],
+            "validation_accuracy": model_status["validation_accuracy"],
+            "confidence_threshold": model_status["confidence_threshold"],
+            "prediction_coverage": model_status["prediction_coverage"],
             "processing_time_ms": processing_time_ms,
         },
     })
@@ -195,17 +239,19 @@ def execute_analysis_job(job_id: str) -> None:
             raise RuntimeError("AUDIO_UNAVAILABLE: Upload a radio audio clip before analysis.")
         job.attempts += 1
         job.started_at = now()
-        _set_phase(db, job, session, "decoding", 10)
+        _set_phase(db, job, session, "decoding", ANALYSIS_PHASE_PROGRESS["decoding"])
         if session.is_demo and settings.demo_mode and clip.transcript_segments:
-            pass
+            _set_phase(db, job, session, "transcribing", ANALYSIS_PHASE_PROGRESS["transcribing"])
+            _set_phase(db, job, session, "extracting_features", ANALYSIS_PHASE_PROGRESS["extracting_features"])
+            _set_phase(db, job, session, "classifying", ANALYSIS_PHASE_PROGRESS["classifying"])
+            _set_phase(db, job, session, "calibrating", ANALYSIS_PHASE_PROGRESS["calibrating"])
         else:
-            _set_phase(db, job, session, "transcribing", 25)
-            _run_inference(db, session, clip)
-        _set_phase(db, job, session, "classifying", 70)
+            _run_inference(db, session, clip, job)
         mode = job.mode
         if mode == "lap_correlated" and not session.laps:
             raise RuntimeError("NO_LAP_DATA: Real lap data is required for lap correlation.")
-        _set_phase(db, job, session, "correlating" if mode == "lap_correlated" else "classifying", 85)
+        final_phase = "correlating" if mode == "lap_correlated" else "calibrating"
+        _set_phase(db, job, session, final_phase, ANALYSIS_PHASE_PROGRESS["correlating"])
         for insight in list(session.insights):
             db.delete(insight)
         db.flush()
@@ -214,7 +260,7 @@ def execute_analysis_job(job_id: str) -> None:
         for item in report["recommendations"]:
             db.add(Insight(session_id=session.id, type=item["type"], severity=item["severity"], title=item["title"], explanation=item["explanation"], recommendation=item["recommendation"], supporting_data_json=json.dumps(item.get("supporting_data", {}))))
         session.analysis_mode = mode
-        session.analysis_version = settings.analysis_version
+        session.analysis_version = report["provenance"].get("model_version") or settings.analysis_version
         session.status = "analysed"
         job.status = "completed"
         job.phase = "completed"
@@ -224,6 +270,18 @@ def execute_analysis_job(job_id: str) -> None:
         job.processing_time_ms = elapsed_ms
         job.completed_at = now()
         db.commit()
+    except AnalysisCancelled:
+        db.rollback()
+        job = db.get(AnalysisJob, job_id)
+        if job:
+            session = db.get(Session, job.session_id)
+            job.status = "cancelled"
+            job.phase = "cancelled"
+            job.retryable = True
+            job.processing_time_ms = round((time.monotonic() - started_clock) * 1000)
+            if session:
+                session.status = "audio_ready" if session.audio_clips else "ready"
+            db.commit()
     except Exception as exc:
         db.rollback()
         job = db.get(AnalysisJob, job_id)

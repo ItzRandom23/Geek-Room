@@ -21,3 +21,5 @@ redis==5.2.1
 rq==2.1.0
 reportlab==4.2.5
 boto3==1.35.81
+scikit-learn>=1.6.0,<1.7
+joblib>=1.4.2,<2

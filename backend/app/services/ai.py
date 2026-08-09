@@ -6,6 +6,7 @@ import numpy as np
 from .audio import load_audio_samples
 from .labels import normalize_label, normalize_scores
 from ..config import Settings
+from ..ml.emotion import TRAINED_LABELS, WavLMFeatureExtractor, load_promoted_metadata, passes_promotion_gate, promoted_paths
 
 
 @dataclass
@@ -121,6 +122,72 @@ class HuggingFaceAudioEmotion(AudioEmotionProvider):
         return windows
 
 
+class PromotedRaceRadioEmotion(AudioEmotionProvider):
+    """CPU runtime for an artifact that passed the speaker-held-out release gate."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.artifact_root = Path(settings.emotion_artifact_dir)
+        self.metadata = load_promoted_metadata(self.artifact_root) or {}
+        self._artifact = None
+        self._extractor = None
+
+    def _load(self):
+        if self._artifact is None:
+            import joblib
+
+            model_path, _ = promoted_paths(self.artifact_root)
+            artifact = joblib.load(model_path)
+            metadata = artifact.get("metadata") or self.metadata
+            if not metadata.get("promoted") or not passes_promotion_gate(metadata.get("test_metrics", {}), self.settings.emotion_target_accuracy):
+                raise RuntimeError("The promoted emotion artifact does not satisfy the configured release gate.")
+            self.metadata = metadata
+            self._artifact = artifact
+            self._extractor = WavLMFeatureExtractor(metadata.get("encoder_model", self.settings.hf_embedding_model))
+        return self._artifact, self._extractor
+
+    def analyse(self, audio_path: Path) -> list[EmotionWindowResult]:
+        artifact, extractor = self._load()
+        classifier = artifact["audio_classifier"]
+        windows = []
+        for start, end, features in extractor.extract_windows(audio_path):
+            probabilities = classifier.predict_proba(features.reshape(1, -1))[0]
+            raw_scores = {str(label): float(score) for label, score in zip(classifier.classes_, probabilities)}
+            scores = {label: raw_scores.get(label, 0.0) for label in TRAINED_LABELS}
+            scores["uncertain"] = 0.0
+            label = max(TRAINED_LABELS, key=lambda item: scores[item])
+            confidence = scores[label]
+            windows.append(EmotionWindowResult(
+                start,
+                end,
+                label,
+                label,
+                confidence,
+                scores,
+                {"audio_probabilities": raw_scores, "model_version": self.metadata.get("model_version")},
+            ))
+        return windows
+
+    def fuse(self, audio_scores: dict[str, float], text_scores: dict[str, float], urgency: float) -> tuple[str, float, dict[str, float]]:
+        artifact, _ = self._load()
+        fusion = artifact["fusion_classifier"]
+        audio_order = self.metadata.get("audio_class_order", list(TRAINED_LABELS))
+        vector = np.asarray(
+            [audio_scores.get(label, 0.0) for label in audio_order]
+            + [text_scores.get(label, 0.0) for label in TRAINED_LABELS]
+            + [urgency],
+            dtype=np.float32,
+        ).reshape(1, -1)
+        probabilities = fusion.predict_proba(vector)[0]
+        scores = {label: float(score) for label, score in zip(fusion.classes_, probabilities)}
+        label = max(TRAINED_LABELS, key=lambda item: scores.get(item, 0.0))
+        confidence = scores.get(label, 0.0)
+        if confidence < float(self.metadata.get("confidence_threshold", 1.0)):
+            label = "uncertain"
+        scores["uncertain"] = max(0.0, 1.0 - confidence) if label == "uncertain" else 0.0
+        return label, confidence, scores
+
+
 class HuggingFaceTextEmotion(TextEmotionProvider):
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -152,7 +219,36 @@ class ProviderBundle:
 
 
 def build_provider_bundle(settings: Settings) -> ProviderBundle:
-    return ProviderBundle(HuggingFaceSpeechToText(settings), HuggingFaceAudioEmotion(settings), HuggingFaceTextEmotion(settings))
+    metadata = load_promoted_metadata(Path(settings.emotion_artifact_dir))
+    audio_provider: AudioEmotionProvider
+    if metadata and passes_promotion_gate(metadata.get("test_metrics", {}), settings.emotion_target_accuracy):
+        audio_provider = PromotedRaceRadioEmotion(settings)
+    else:
+        audio_provider = HuggingFaceAudioEmotion(settings)
+    return ProviderBundle(HuggingFaceSpeechToText(settings), audio_provider, HuggingFaceTextEmotion(settings))
+
+
+def emotion_model_status(settings: Settings) -> dict[str, Any]:
+    metadata = load_promoted_metadata(Path(settings.emotion_artifact_dir))
+    if metadata and passes_promotion_gate(metadata.get("test_metrics", {}), settings.emotion_target_accuracy):
+        return {
+            "model": metadata.get("encoder_model", settings.hf_embedding_model),
+            "configured": True,
+            "promoted": True,
+            "model_version": metadata.get("model_version"),
+            "validation_accuracy": metadata.get("validation_accuracy"),
+            "confidence_threshold": metadata.get("confidence_threshold"),
+            "prediction_coverage": metadata.get("prediction_coverage"),
+        }
+    return {
+        "model": settings.hf_audio_emotion_model,
+        "configured": bool(settings.hf_audio_emotion_model),
+        "promoted": False,
+        "model_version": None,
+        "validation_accuracy": None,
+        "confidence_threshold": None,
+        "prediction_coverage": None,
+    }
 
 
 def json_default(value: Any):

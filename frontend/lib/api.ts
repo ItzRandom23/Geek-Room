@@ -1,4 +1,4 @@
-export const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+export const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
 
 export type Session = { id:number; name:string; driver_name:string; circuit_name:string; created_at:string; status:string; is_demo:boolean; organization_id:number|null; analysis_mode:string|null; active_clip_id:number|null; audio_count:number; lap_count:number; audio?:AudioClip[]; laps?:Lap[]; transcript?:Transcript[]; emotions?:Emotion[]; insights?:Insight[]; report?:Report|null };
 export type AudioClip = { id:number; original_filename:string; duration_seconds:number|null; detected_language?:string|null; sample_rate?:number|null; processing_status?:string; active?:boolean; uploaded_at:string };
@@ -7,7 +7,7 @@ export type Transcript = { id:number; start_seconds:number; end_seconds:number; 
 export type Emotion = { id:number; normalized_label:string; raw_label:string; confidence:number; source:string; start_seconds:number; end_seconds:number };
 export type Insight = { id:number; type:string; severity:string; title:string; explanation:string; recommendation:string; supporting_data:Record<string,unknown> };
 export type TimelineEvent = { timestamp:number; label:string; confidence:number; transcript:string; lap_number:number|null; recommendation:string|null };
-export type Report = { primary_state:string; confidence:number; transcript:string; correlations:Record<string,unknown>[]; performance_by_state:{label:string;event_count:number;average_lap_time:number|null;delta_to_median:number|null}[]; recommendations:Insight[]; analysis_mode?:string; correlation_available?:boolean; association_notice?:string; provenance?:{models:Record<string,string>;language:string;generated_at:string;analysis_version:string} };
+export type Report = { primary_state:string; confidence:number; transcript:string; correlations:Record<string,unknown>[]; performance_by_state:{label:string;event_count:number;average_lap_time:number|null;delta_to_median:number|null}[]; recommendations:Insight[]; analysis_mode?:string; correlation_available?:boolean; association_notice?:string; provenance?:{models:Record<string,string>;language:string;generated_at:string;analysis_version:string;model_version?:string|null;validation_accuracy?:number|null;confidence_threshold?:number|null;prediction_coverage?:number|null;processing_time_ms?:number|null} };
 export type AnalysisJob = { job_id:string; session_id:number; mode:string; status:string; phase:string; progress:number; attempts:number; retryable:boolean; error:{code:string;message:string;retryable:boolean}|null; report?:Report; created_at:string; started_at:string|null; completed_at:string|null };
 export type AuthResponse = { access_token:string; token_type:string; user:{id:number;email:string;full_name:string}; organization:{id:number;name:string;role:string} };
 

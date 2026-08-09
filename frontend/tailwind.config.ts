@@ -1,3 +1,27 @@
 import type { Config } from "tailwindcss";
-const config: Config = { content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"], theme: { extend: { colors: { ink: "#0a0d11", panel: "#11161c", line: "#28313b", signal: "#ef4d4d", cyan: "#62d5d0", amber: "#f4b75a" }, fontFamily: { sans: ["var(--font-inter)"] } } }, plugins: [] };
+
+const config: Config = {
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  theme: {
+    extend: {
+      colors: {
+        ink: "#07080D",
+        panel: "#0D111C",
+        line: "rgba(255, 255, 255, 0.12)",
+        signal: "#FF6B00",
+        neon: "#FF3D00",
+        blue: "#0066FF",
+        cyan: "#00F0FF",
+        amber: "#F4B75A",
+      },
+      fontFamily: {
+        sans: ["Outfit", "sans-serif"],
+        display: ["Space Grotesk", "sans-serif"],
+        mono: ["JetBrains Mono", "monospace"],
+      },
+    },
+  },
+  plugins: [],
+};
+
 export default config;

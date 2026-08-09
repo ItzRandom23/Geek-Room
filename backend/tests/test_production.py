@@ -37,6 +37,12 @@ class FakeText(TextEmotionProvider):
         return {"calm": 0.9}
 
 
+class SlowAudio(FakeAudio):
+    def analyse(self, audio_path):
+        time.sleep(0.25)
+        return super().analyse(audio_path)
+
+
 def test_audio_only_does_not_create_or_claim_laps(monkeypatch):
     monkeypatch.setattr("app.main.build_provider_bundle", lambda settings: ProviderBundle(FakeStt(), FakeAudio(), FakeText()))
     created = client.post("/api/sessions", json={"name": "Audio only", "driver_name": "Driver", "circuit_name": "Track"})
@@ -58,6 +64,21 @@ def test_audio_only_does_not_create_or_claim_laps(monkeypatch):
     assert client.get(f"/api/sessions/{session_id}/exports/report.csv").status_code == 200
     assert client.get(f"/api/sessions/{session_id}/exports/report.pdf").headers["content-type"] == "application/pdf"
     assert client.get(f"/api/sessions/{session_id}").json()["lap_count"] == 0
+    client.delete(f"/api/sessions/{session_id}")
+
+
+def test_cancelled_analysis_is_not_overwritten_by_worker(monkeypatch):
+    monkeypatch.setattr("app.main.build_provider_bundle", lambda settings: ProviderBundle(FakeStt(), SlowAudio(), FakeText()))
+    created = client.post("/api/sessions", json={"name": "Cancel run", "driver_name": "Driver", "circuit_name": "Track"})
+    session_id = created.json()["id"]
+    client.post(f"/api/sessions/{session_id}/audio", files={"audio": ("radio.wav", wav_bytes(), "audio/wav")})
+    accepted = client.post(f"/api/sessions/{session_id}/analyse", json={"mode": "audio_only"}).json()
+    cancelled = client.post(f"/api/sessions/{session_id}/analysis/cancel")
+    assert cancelled.status_code == 200
+    time.sleep(0.4)
+    job = client.get(f"/api/jobs/{accepted['job_id']}").json()
+    assert job["status"] == "cancelled"
+    assert job["phase"] == "cancelled"
     client.delete(f"/api/sessions/{session_id}")
 
 

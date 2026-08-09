@@ -20,7 +20,7 @@ from .config import get_settings
 from .database import get_db, run_migrations
 from .models import AnalysisJob, AuditEvent, AudioClip, Insight, Lap, Membership, Organization, Session, User
 from .schemas import AnalysisRequest, AuthLogin, AuthRegister, LapInput, SessionCreate
-from .services.ai import ProviderBundle, build_provider_bundle
+from .services.ai import ProviderBundle, build_provider_bundle, emotion_model_status
 from .services.analysis import Event, build_report
 from .services.audio import audio_duration, resolve_audio, save_audio
 from .services.csv_import import parse_lap_csv, validate_lap_rows
@@ -129,6 +129,12 @@ def active_clip(session: Session) -> AudioClip | None:
 
 
 def make_report(session: Session) -> dict:
+    completed_job = max((job for job in session.jobs if job.status == "completed" and job.result_json), key=lambda job: job.completed_at or job.created_at, default=None)
+    if completed_job:
+        try:
+            return json.loads(completed_job.result_json)
+        except json.JSONDecodeError:
+            logger.warning("Stored report for job %s is invalid; rebuilding it.", completed_job.id)
     clip = active_clip(session)
     if clip is None:
         return {"primary_state": "uncertain", "confidence": 0, "transcript": "", "correlations": [], "performance_by_state": [], "recommendations": [], "analysis_mode": session.analysis_mode or "audio_only", "correlation_available": False}
@@ -136,7 +142,8 @@ def make_report(session: Session) -> dict:
     events = [Event(item.normalized_label, item.confidence, item.start_seconds, item.end_seconds, next((segment.text for segment in clip.transcript_segments if segment.start_seconds <= item.start_seconds <= segment.end_seconds), ""), item.source) for item in sorted(clip.emotion_results, key=lambda row: row.start_seconds)]
     mode = session.analysis_mode or ("lap_correlated" if session.laps else "audio_only")
     report = build_report(events, sorted(session.laps, key=lambda row: row.lap_number) if mode == "lap_correlated" else [], transcript)
-    report.update({"analysis_mode": mode, "correlation_available": bool(mode == "lap_correlated" and session.laps), "association_notice": "Associations are not proof of causation." if mode == "lap_correlated" and session.laps else "Audio-only analysis: no lap-performance conclusion was made.", "provenance": {"models": {"stt": settings.hf_stt_model, "audio_emotion": settings.hf_audio_emotion_model, "text_emotion": settings.hf_text_emotion_model}, "language": clip.detected_language or "auto", "generated_at": datetime.now(timezone.utc).isoformat(), "analysis_version": session.analysis_version or settings.analysis_version}})
+    model_status = emotion_model_status(settings)
+    report.update({"analysis_mode": mode, "correlation_available": bool(mode == "lap_correlated" and session.laps), "association_notice": "Associations are not proof of causation." if mode == "lap_correlated" and session.laps else "Audio-only analysis: no lap-performance conclusion was made.", "provenance": {"models": {"stt": settings.hf_stt_model, "audio_emotion": model_status["model"], "text_emotion": settings.hf_text_emotion_model}, "language": clip.detected_language or "auto", "generated_at": datetime.now(timezone.utc).isoformat(), "analysis_version": session.analysis_version or settings.analysis_version, "model_version": model_status["model_version"], "validation_accuracy": model_status["validation_accuracy"], "confidence_threshold": model_status["confidence_threshold"], "prediction_coverage": model_status["prediction_coverage"]}})
     if session.insights:
         report["recommendations"] = [serialize_insight(item) for item in session.insights]
     return report
@@ -188,7 +195,7 @@ def readiness(db: DbSession = Depends(get_db)):
 
 @app.get("/api/models/status")
 def models_status():
-    return {"stt": {"model": settings.hf_stt_model, "configured": bool(settings.hf_stt_model)}, "audio_emotion": {"model": settings.hf_audio_emotion_model, "configured": bool(settings.hf_audio_emotion_model)}, "text_emotion": {"model": settings.hf_text_emotion_model, "configured": bool(settings.hf_text_emotion_model)}, "hf_token_present": bool(settings.hf_token), "inference_location": "backend"}
+    return {"stt": {"model": settings.hf_stt_model, "configured": bool(settings.hf_stt_model)}, "audio_emotion": emotion_model_status(settings), "text_emotion": {"model": settings.hf_text_emotion_model, "configured": bool(settings.hf_text_emotion_model)}, "hf_token_present": bool(settings.hf_token), "inference_location": "backend"}
 
 
 @app.post("/api/auth/register", status_code=201)
