@@ -7,6 +7,9 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -14,10 +17,8 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - run: python -m pip install -r backend/requirements.txt
-      - run: python -m pytest -q backend/tests
-        env:
-          PYTHONPATH: backend
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest -q tests
 
   frontend:
     runs-on: ubuntu-latest
