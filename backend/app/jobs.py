@@ -16,8 +16,8 @@ from sqlalchemy import update
 from .config import get_settings
 from .database import SessionLocal
 from .models import AnalysisJob, AudioClip, EmotionResult, Insight, Session, TranscriptSegment
-from .services.analysis import Event, build_report, urgency_score
-from .services.ai import emotion_model_status, serialize_raw
+from .services.analysis import Event, build_report, interval_overlap, overlapping_text, urgency_score
+from .services.ai import emotion_model_status, normalize_language, serialize_raw
 from .services.audio import resolve_audio
 from .storage import get_storage
 
@@ -68,6 +68,21 @@ def _active_clip(session: Session) -> AudioClip | None:
         if selected:
             return selected
     return max(session.audio_clips, key=lambda clip: clip.uploaded_at, default=None)
+
+
+def _is_english(language: str | None) -> bool:
+    return (language or "und").lower().split("-", 1)[0] == "en"
+
+
+def _related_segment(segments: list[TranscriptSegment], start: float, end: float) -> TranscriptSegment | None:
+    candidates = [
+        (interval_overlap(start, end, item.start_seconds, item.end_seconds), item)
+        for item in segments
+    ]
+    overlapping = [item for overlap, item in candidates if overlap > 0]
+    if overlapping:
+        return max(overlapping, key=lambda item: interval_overlap(start, end, item.start_seconds, item.end_seconds))
+    return None
 
 
 def _run_inference(db, session: Session, clip: AudioClip, job: AnalysisJob) -> None:
@@ -123,20 +138,23 @@ def _run_inference_from_path(db, session, clip, path, job: AnalysisJob | None = 
         segments.append(segment)
     db.flush()
 
+    language = normalize_language(transcription.language)
+    text_signals_applied = _is_english(language)
     text_scores = {}
     if job is not None:
         _set_phase(db, job, session, "classifying", ANALYSIS_PHASE_PROGRESS["classifying"])
-    try:
-        text_scores = providers.text_emotion.analyse(transcription.transcript)
-    except Exception as exc:
-        logger.warning("Optional text-emotion model unavailable: %s", type(exc).__name__)
+    if text_signals_applied:
+        try:
+            text_scores = providers.text_emotion.analyse(transcription.transcript)
+        except Exception as exc:
+            logger.warning("Optional text-emotion model unavailable: %s", type(exc).__name__)
 
     if job is not None:
         _set_phase(db, job, session, "calibrating", ANALYSIS_PHASE_PROGRESS["calibrating"])
     for window in emotion_windows:
-        related = next((segment for segment in segments if segment.start_seconds <= window.start <= segment.end_seconds), None)
-        excerpt = related.text if related else ""
-        urgency = urgency_score(excerpt)
+        related = _related_segment(segments, window.start, window.end)
+        excerpt = overlapping_text(segments, window.start, window.end)
+        urgency = urgency_score(excerpt) if text_signals_applied else 0.0
         if hasattr(providers.audio_emotion, "fuse"):
             label, confidence, fused_scores = providers.audio_emotion.fuse(window.scores, text_scores, urgency)
             source = "trained_audio+text"
@@ -146,7 +164,13 @@ def _run_inference_from_path(db, session, clip, path, job: AnalysisJob | None = 
             fused_scores = window.scores
             source = "audio-baseline"
         raw = dict(window.raw)
-        raw.update({"fused_scores": fused_scores, "text_scores": text_scores, "urgency": urgency})
+        raw.update({
+            "fused_scores": fused_scores,
+            "text_scores": text_scores,
+            "urgency": urgency,
+            "transcription_language": language,
+            "text_signals_applied": text_signals_applied,
+        })
         db.add(EmotionResult(
             clip_id=clip.id,
             segment_id=related.id if related else None,
@@ -158,7 +182,7 @@ def _run_inference_from_path(db, session, clip, path, job: AnalysisJob | None = 
             end_seconds=window.end,
             raw_output_json=serialize_raw(raw),
         ))
-    clip.detected_language = transcription.language or "auto"
+    clip.detected_language = language
     clip.processing_status = "analysed"
     db.flush()
 
@@ -166,7 +190,7 @@ def _run_inference_from_path(db, session, clip, path, job: AnalysisJob | None = 
 def _report(session: Session, mode: str, processing_time_ms: int | None = None) -> dict:
     clip = _active_clip(session)
     if clip is None:
-        return {"primary_state": "uncertain", "confidence": 0, "transcript": "", "correlations": [], "performance_by_state": [], "recommendations": []}
+        return build_report([], [], "", language="und", text_signals_applied=False)
     transcript_segments = sorted(clip.transcript_segments, key=lambda row: row.start_seconds)
     transcript = " ".join(segment.text for segment in transcript_segments).strip()
     events = [
@@ -175,13 +199,22 @@ def _report(session: Session, mode: str, processing_time_ms: int | None = None) 
             item.confidence,
             item.start_seconds,
             item.end_seconds,
-            next((segment.text for segment in transcript_segments if segment.start_seconds <= item.start_seconds <= segment.end_seconds), ""),
+            overlapping_text(transcript_segments, item.start_seconds, item.end_seconds),
             item.source,
         )
         for item in sorted(clip.emotion_results, key=lambda row: row.start_seconds)
     ]
     laps = sorted(session.laps, key=lambda row: row.lap_number) if mode == "lap_correlated" else []
-    report = build_report(events, laps, transcript)
+    language = normalize_language(clip.detected_language)
+    report = build_report(
+        events,
+        laps,
+        transcript,
+        transcript_segments=transcript_segments,
+        audio_duration_seconds=clip.duration_seconds,
+        language=language,
+        text_signals_applied=_is_english(language),
+    )
     model_status = emotion_model_status(settings)
     report.update({
         "analysis_mode": mode,
@@ -193,13 +226,16 @@ def _report(session: Session, mode: str, processing_time_ms: int | None = None) 
                 "audio_emotion": model_status["model"],
                 "text_emotion": settings.hf_text_emotion_model,
             },
-            "language": clip.detected_language or "auto",
+            "language": language,
+            "transcription_task": "transcribe",
+            "text_signals_applied": _is_english(language),
             "generated_at": now().isoformat(),
             "analysis_version": settings.analysis_version,
             "model_version": model_status["model_version"],
             "validation_accuracy": model_status["validation_accuracy"],
             "confidence_threshold": model_status["confidence_threshold"],
             "prediction_coverage": model_status["prediction_coverage"],
+            "audio_analyzer": model_status.get("analyzer_provenance"),
             "processing_time_ms": processing_time_ms,
         },
     })
@@ -328,4 +364,5 @@ def serialize_job(job: AnalysisJob) -> dict:
         "started_at": job.started_at,
         "completed_at": job.completed_at,
         "processing_time_ms": job.processing_time_ms,
+        "timeout_seconds": settings.model_timeout_seconds + 60,
     }

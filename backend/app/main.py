@@ -20,10 +20,11 @@ from .config import get_settings
 from .database import get_db, run_migrations
 from .models import AnalysisJob, AuditEvent, AudioClip, Insight, Lap, Membership, Organization, Session, User
 from .schemas import AnalysisRequest, AuthLogin, AuthRegister, LapInput, SessionCreate
-from .services.ai import ProviderBundle, build_provider_bundle, emotion_model_status
-from .services.analysis import Event, build_report
+from .services.ai import ProviderBundle, build_provider_bundle, emotion_model_status, normalize_language
+from .services.analysis import Event, build_report, event_lap, overlapping_text
 from .services.audio import audio_duration, resolve_audio, save_audio
 from .services.csv_import import parse_lap_csv, validate_lap_rows
+from .services.pdf_report import render_pdf_report
 from .jobs import enqueue_analysis, serialize_job
 from .storage import get_storage
 
@@ -81,6 +82,9 @@ async def request_id_middleware(request: Request, call_next):
 async def http_error_handler(request: Request, exc: HTTPException):
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed."
     code = {401: "UNAUTHENTICATED", 403: "FORBIDDEN", 404: "NOT_FOUND", 409: "CONFLICT", 413: "UPLOAD_TOO_LARGE", 415: "UNSUPPORTED_MEDIA", 422: "VALIDATION_ERROR"}.get(exc.status_code, "REQUEST_FAILED")
+    if detail.startswith("ANALYSIS_IN_PROGRESS:"):
+        code = "ANALYSIS_IN_PROGRESS"
+        detail = detail.split(":", 1)[1].strip()
     return JSONResponse(status_code=exc.status_code, content={"error": {"code": code, "message": detail, "retryable": exc.status_code >= 500, "request_id": getattr(request.state, "request_id", None)}}, headers=exc.headers)
 
 
@@ -128,25 +132,82 @@ def active_clip(session: Session) -> AudioClip | None:
     return max(session.audio_clips, key=lambda clip: clip.uploaded_at, default=None)
 
 
+def _is_english(language: str | None) -> bool:
+    return (language or "und").lower().split("-", 1)[0] == "en"
+
+
+def ensure_session_mutable(db: DbSession, session: Session) -> None:
+    active_job = db.scalar(select(AnalysisJob).where(AnalysisJob.session_id == session.id, AnalysisJob.status.in_(["queued", "running"])))
+    if active_job:
+        raise HTTPException(409, "ANALYSIS_IN_PROGRESS: Cancel the active analysis before changing audio or lap data.")
+
+
+def build_current_report(session: Session, clip: AudioClip) -> dict:
+    transcript_segments = sorted(clip.transcript_segments, key=lambda row: row.start_seconds)
+    transcript = " ".join(segment.text for segment in transcript_segments).strip()
+    events = [
+        Event(
+            item.normalized_label,
+            item.confidence,
+            item.start_seconds,
+            item.end_seconds,
+            overlapping_text(transcript_segments, item.start_seconds, item.end_seconds),
+            item.source,
+        )
+        for item in sorted(clip.emotion_results, key=lambda row: row.start_seconds)
+    ]
+    mode = session.analysis_mode or ("lap_correlated" if session.laps else "audio_only")
+    laps = sorted(session.laps, key=lambda row: row.lap_number) if mode == "lap_correlated" else []
+    # Older rows used values such as "auto" before detection was persisted.
+    # Keep that state unknown rather than presenting a fabricated language.
+    language = normalize_language(clip.detected_language)
+    report = build_report(
+        events,
+        laps,
+        transcript,
+        transcript_segments=transcript_segments,
+        audio_duration_seconds=clip.duration_seconds,
+        language=language,
+        text_signals_applied=_is_english(language),
+    )
+    model_status = emotion_model_status(settings)
+    report.update({
+        "analysis_mode": mode,
+        "correlation_available": bool(mode == "lap_correlated" and laps),
+        "association_notice": "Associations are not proof of causation." if mode == "lap_correlated" and laps else "Audio-only analysis: no lap-performance conclusion was made.",
+        "provenance": {
+            "models": {"stt": settings.hf_stt_model, "audio_emotion": model_status["model"], "text_emotion": settings.hf_text_emotion_model},
+            "language": language,
+            "transcription_task": "transcribe",
+            "text_signals_applied": _is_english(language),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "analysis_version": session.analysis_version or settings.analysis_version,
+            "model_version": model_status["model_version"],
+            "validation_accuracy": model_status["validation_accuracy"],
+            "confidence_threshold": model_status["confidence_threshold"],
+            "prediction_coverage": model_status["prediction_coverage"],
+            "audio_analyzer": model_status.get("analyzer_provenance"),
+            "legacy_report_rebuilt": True,
+        },
+    })
+    return report
+
+
 def make_report(session: Session) -> dict:
     completed_job = max((job for job in session.jobs if job.status == "completed" and job.result_json), key=lambda job: job.completed_at or job.created_at, default=None)
     if completed_job:
         try:
-            return json.loads(completed_job.result_json)
+            stored = json.loads(completed_job.result_json)
+            if stored.get("schema_version") == 2:
+                return stored
         except json.JSONDecodeError:
             logger.warning("Stored report for job %s is invalid; rebuilding it.", completed_job.id)
     clip = active_clip(session)
     if clip is None:
-        return {"primary_state": "uncertain", "confidence": 0, "transcript": "", "correlations": [], "performance_by_state": [], "recommendations": [], "analysis_mode": session.analysis_mode or "audio_only", "correlation_available": False}
-    transcript = " ".join(segment.text for segment in sorted(clip.transcript_segments, key=lambda row: row.start_seconds)).strip()
-    events = [Event(item.normalized_label, item.confidence, item.start_seconds, item.end_seconds, next((segment.text for segment in clip.transcript_segments if segment.start_seconds <= item.start_seconds <= segment.end_seconds), ""), item.source) for item in sorted(clip.emotion_results, key=lambda row: row.start_seconds)]
-    mode = session.analysis_mode or ("lap_correlated" if session.laps else "audio_only")
-    report = build_report(events, sorted(session.laps, key=lambda row: row.lap_number) if mode == "lap_correlated" else [], transcript)
-    model_status = emotion_model_status(settings)
-    report.update({"analysis_mode": mode, "correlation_available": bool(mode == "lap_correlated" and session.laps), "association_notice": "Associations are not proof of causation." if mode == "lap_correlated" and session.laps else "Audio-only analysis: no lap-performance conclusion was made.", "provenance": {"models": {"stt": settings.hf_stt_model, "audio_emotion": model_status["model"], "text_emotion": settings.hf_text_emotion_model}, "language": clip.detected_language or "auto", "generated_at": datetime.now(timezone.utc).isoformat(), "analysis_version": session.analysis_version or settings.analysis_version, "model_version": model_status["model_version"], "validation_accuracy": model_status["validation_accuracy"], "confidence_threshold": model_status["confidence_threshold"], "prediction_coverage": model_status["prediction_coverage"]}})
-    if session.insights:
-        report["recommendations"] = [serialize_insight(item) for item in session.insights]
-    return report
+        report = build_report([], [], "", language="und", text_signals_applied=False)
+        report.update({"analysis_mode": session.analysis_mode or "audio_only", "correlation_available": False, "association_notice": "Audio-only analysis: no lap-performance conclusion was made."})
+        return report
+    return build_current_report(session, clip)
 
 
 def serialize_session(session: Session, include_analysis: bool = False) -> dict:
@@ -196,6 +257,38 @@ def readiness(db: DbSession = Depends(get_db)):
 @app.get("/api/models/status")
 def models_status():
     return {"stt": {"model": settings.hf_stt_model, "configured": bool(settings.hf_stt_model)}, "audio_emotion": emotion_model_status(settings), "text_emotion": {"model": settings.hf_text_emotion_model, "configured": bool(settings.hf_text_emotion_model)}, "hf_token_present": bool(settings.hf_token), "inference_location": "backend"}
+
+
+@app.get("/api/models/benchmark")
+def model_benchmark_scorecard():
+    """Expose a safe, read-only comparison view of the latest benchmark."""
+    path = Path(settings.emotion_calibration_dir) / "benchmark-report.json"
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"available": False, "reason": "No completed benchmark report is available."}
+    candidates = []
+    for identifier, value in (report.get("candidates") or {}).items():
+        spec = value.get("candidate") or {}
+        candidates.append({
+            "candidate_id": identifier,
+            "model_id": spec.get("model_id"),
+            "revision": value.get("revision"),
+            "license": spec.get("license_name"),
+            "language_scope": spec.get("language_scope", []),
+            "metrics": value.get("metrics", {}),
+            "cross_domain_public": value.get("cross_domain_public"),
+            "promotion": (report.get("promotion_decisions") or {}).get(identifier, {"passed": False}),
+        })
+    return {
+        "available": True,
+        "generated_at": report.get("generated_at"),
+        "environment": report.get("environment"),
+        "pilot": report.get("pilot"),
+        "split_sizes": report.get("split_sizes"),
+        "public_cross_domain_clips": report.get("public_cross_domain_clips", 0),
+        "candidates": candidates,
+    }
 
 
 @app.post("/api/auth/register", status_code=201)
@@ -294,6 +387,7 @@ def delete_session(session_id: int, db: DbSession = Depends(get_db), user: User 
 @app.post("/api/sessions/{session_id}/audio", status_code=201)
 async def upload_audio(session_id: int, audio: UploadFile = File(...), db: DbSession = Depends(get_db), user: User | None = Depends(get_current_user)):
     session = get_session_or_404(db, session_id, user)
+    ensure_session_mutable(db, session)
     original, stored, duration = await save_audio(audio, settings.upload_dir, settings.max_upload_mb, settings.max_audio_duration_seconds)
     clip = AudioClip(session_id=session.id, original_filename=original, stored_filename=stored, duration_seconds=duration)
     local_path = resolve_audio(settings.upload_dir, stored)
@@ -332,6 +426,7 @@ def stream_audio(session_id: int, clip_id: int, db: DbSession = Depends(get_db),
 @app.post("/api/sessions/{session_id}/audio/{clip_id}/replace", status_code=201)
 async def replace_audio(session_id: int, clip_id: int, audio: UploadFile = File(...), db: DbSession = Depends(get_db), user: User | None = Depends(get_current_user)):
     session = get_session_or_404(db, session_id, user)
+    ensure_session_mutable(db, session)
     clip = db.scalar(select(AudioClip).where(AudioClip.id == clip_id, AudioClip.session_id == session_id))
     if not clip:
         raise HTTPException(404, "Audio clip not found.")
@@ -367,6 +462,7 @@ async def replace_audio(session_id: int, clip_id: int, audio: UploadFile = File(
 @app.delete("/api/sessions/{session_id}/audio/{clip_id}", status_code=204)
 def delete_audio(session_id: int, clip_id: int, db: DbSession = Depends(get_db), user: User | None = Depends(get_current_user)):
     session = get_session_or_404(db, session_id, user)
+    ensure_session_mutable(db, session)
     clip = db.scalar(select(AudioClip).where(AudioClip.id == clip_id, AudioClip.session_id == session_id))
     if not clip:
         raise HTTPException(404, "Audio clip not found.")
@@ -392,6 +488,7 @@ def delete_audio(session_id: int, clip_id: int, db: DbSession = Depends(get_db),
 @app.post("/api/sessions/{session_id}/laps/csv")
 async def upload_laps_csv(session_id: int, csv_file: UploadFile = File(...), db: DbSession = Depends(get_db), user: User | None = Depends(get_current_user)):
     session = get_session_or_404(db, session_id, user)
+    ensure_session_mutable(db, session)
     rows = await parse_lap_csv(csv_file)
     db.query(Lap).filter(Lap.session_id == session.id).delete()
     db.add_all([Lap(session_id=session.id, **row) for row in rows])
@@ -403,6 +500,7 @@ async def upload_laps_csv(session_id: int, csv_file: UploadFile = File(...), db:
 @app.post("/api/sessions/{session_id}/laps/manual")
 def upload_laps_manual(session_id: int, rows: list[LapInput], db: DbSession = Depends(get_db), user: User | None = Depends(get_current_user)):
     session = get_session_or_404(db, session_id, user)
+    ensure_session_mutable(db, session)
     if not rows:
         raise HTTPException(422, "At least one lap is required.")
     validate_lap_rows([row.model_dump() for row in rows])
@@ -510,8 +608,9 @@ def timeline(session_id: int, db: DbSession = Depends(get_db), user: User | None
     transcript = list(clip.transcript_segments) if clip else []
     events = []
     for item in sorted(clip.emotion_results if clip else [], key=lambda row: row.start_seconds):
-        excerpt = next((segment.text for segment in transcript if segment.start_seconds <= item.start_seconds <= segment.end_seconds), "")
-        events.append({"timestamp": item.start_seconds, "label": item.normalized_label, "confidence": item.confidence, "transcript": excerpt, "lap_number": next((lap.lap_number for lap in session.laps if lap.start_timestamp_seconds <= item.start_seconds <= lap.end_timestamp_seconds), None), "recommendation": next((insight.recommendation for insight in session.insights if insight.severity in {"critical", "high"}), None)})
+        excerpt = overlapping_text(transcript, item.start_seconds, item.end_seconds)
+        matched_lap = event_lap(session.laps, Event(item.normalized_label, item.confidence, item.start_seconds, item.end_seconds))
+        events.append({"timestamp": item.start_seconds, "end_timestamp": item.end_seconds, "label": item.normalized_label, "confidence": item.confidence, "transcript": excerpt, "lap_number": matched_lap.lap_number if matched_lap else None, "recommendation": next((insight.recommendation for insight in session.insights if insight.severity in {"critical", "high"}), None)})
     return {"laps": serialize_session(session)["laps"], "events": sorted(events, key=lambda item: item["timestamp"]), "transcript": [{"id": item.id, "start_seconds": item.start_seconds, "end_seconds": item.end_seconds, "text": item.text} for item in sorted(transcript, key=lambda row: row.start_seconds)]}
 
 
@@ -536,11 +635,17 @@ def export_report_csv(session_id: int, db: DbSession = Depends(get_db), user: Us
     session = get_session_or_404(db, session_id, user)
     if session.status != "analysed":
         raise HTTPException(409, "Session has not been analysed yet.")
+    report = make_report(session)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["event_timestamp", "label", "confidence", "lap_number", "next_lap_number", "next_lap_delta_seconds", "deterioration", "transcript"])
-    for row in make_report(session).get("correlations", []):
-        writer.writerow([row.get("event_timestamp"), row.get("label"), row.get("confidence"), row.get("lap_number"), row.get("next_lap_number"), row.get("next_lap_delta_seconds"), row.get("deterioration"), row.get("transcript", "")])
+    writer.writerow(["row_type", "start_seconds", "end_seconds", "language", "label", "severity", "confidence", "matched_lap", "lap_number", "next_lap_number", "next_lap_delta_seconds", "deterioration", "transcript"])
+    language = (report.get("summary") or {}).get("language") or (report.get("provenance") or {}).get("language") or "und"
+    for row in report.get("timestamped_transcript", []):
+        writer.writerow(["transcript", row.get("start_seconds"), row.get("end_seconds"), language, "", "", "", "", "", "", "", "", row.get("text", "")])
+    correlations = {(row.get("event_timestamp"), row.get("label")): row for row in report.get("correlations", [])}
+    for row in report.get("timestamped_events", []):
+        correlation = correlations.get((row.get("start_seconds"), row.get("label")), {})
+        writer.writerow(["event", row.get("start_seconds"), row.get("end_seconds"), language, row.get("label"), row.get("severity"), row.get("confidence"), correlation.get("matched", row.get("matched_lap")), correlation.get("lap_number", row.get("lap_number")), correlation.get("next_lap_number"), correlation.get("next_lap_delta_seconds"), correlation.get("deterioration"), row.get("transcript", "")])
     return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="pitsense-{session.id}-report.csv"'})
 
 
@@ -550,45 +655,7 @@ def export_report_pdf(session_id: int, db: DbSession = Depends(get_db), user: Us
     if session.status != "analysed":
         raise HTTPException(409, "Session has not been analysed yet.")
     try:
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
-    except ImportError as exc:
-        raise HTTPException(503, "PDF export dependency is not installed on the backend.") from exc
-    report = make_report(session)
-    output = io.BytesIO()
-    pdf = canvas.Canvas(output, pagesize=letter)
-    width, height = letter
-    y = height - 48
-    pdf.setTitle(f"PitSense report {session.id}")
-    pdf.setFont("Helvetica-Bold", 16)
-    pdf.drawString(48, y, f"PitSense AI — {session.name}")
-    y -= 26
-    pdf.setFont("Helvetica", 10)
-    for line in [f"Driver: {session.driver_name} | Circuit: {session.circuit_name}", f"Primary state: {report.get('primary_state')} ({round(report.get('confidence', 0) * 100)}%)", f"Mode: {report.get('analysis_mode')}", "Association notice: " + report.get("association_notice", "")]:
-        pdf.drawString(48, y, line[:115])
-        y -= 16
-    y -= 10
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(48, y, "Transcript")
-    y -= 16
-    pdf.setFont("Helvetica", 9)
-    for word_line in report.get("transcript", "").split(" "):
-        if y < 60:
-            pdf.showPage()
-            y = height - 48
-        pdf.drawString(48, y, str(word_line)[:115])
-        y -= 12
-    y -= 8
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(48, y, "Recommendations")
-    y -= 16
-    pdf.setFont("Helvetica", 9)
-    for item in report.get("recommendations", []):
-        for line in [f"[{item.get('severity', 'info').upper()}] {item.get('title')}", item.get("recommendation", "")]:
-            if y < 60:
-                pdf.showPage()
-                y = height - 48
-            pdf.drawString(48, y, line[:115])
-            y -= 12
-    pdf.save()
-    return Response(content=output.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="pitsense-{session.id}-report.pdf"'})
+        payload = render_pdf_report(session, make_report(session))
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return Response(content=payload, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="pitsense-{session.id}-report.pdf"'})

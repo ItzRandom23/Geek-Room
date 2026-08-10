@@ -1,12 +1,15 @@
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 import numpy as np
 from .audio import load_audio_samples
+from .audio_candidates import build_audio_candidate, get_candidate_spec
 from .labels import normalize_label, normalize_scores
 from ..config import Settings
 from ..ml.emotion import TRAINED_LABELS, WavLMFeatureExtractor, load_promoted_metadata, passes_promotion_gate, promoted_paths
+from ..ml.promotion import load_signed_promotion_manifest, safe_calibration_path
 
 
 @dataclass
@@ -68,7 +71,15 @@ class HuggingFaceSpeechToText(SpeechToTextProvider):
     def transcribe(self, audio_path: Path) -> TranscriptionResult:
         pipe = self._load()
         audio, sample_rate = load_audio_samples(audio_path, 16000)
-        output = pipe({"array": audio, "sampling_rate": sample_rate}, return_timestamps=True)
+        # Whisper supports both transcription and translation. Always select
+        # transcription so the stored radio evidence remains in the language
+        # spoken by the driver.
+        output = pipe(
+            {"array": audio, "sampling_rate": sample_rate},
+            return_timestamps=True,
+            return_language=True,
+            generate_kwargs={"task": "transcribe"},
+        )
         chunks = output.get("chunks", []) if isinstance(output, dict) else []
         segments = []
         for chunk in chunks:
@@ -81,8 +92,49 @@ class HuggingFaceSpeechToText(SpeechToTextProvider):
         transcript = str(output.get("text", "") if isinstance(output, dict) else output).strip()
         if not transcript and segments:
             transcript = " ".join(item.text for item in segments)
-        language = output.get("language", "auto") if isinstance(output, dict) else "auto"
+        language = normalize_language(output.get("language") if isinstance(output, dict) else None)
+        if language == "und":
+            for chunk in chunks:
+                language = normalize_language(chunk.get("language"))
+                if language != "und":
+                    break
         return TranscriptionResult(transcript, segments, language, None, output if isinstance(output, dict) else {})
+
+
+LANGUAGE_ALIASES = {
+    "english": "en",
+    "hindi": "hi",
+    "spanish": "es",
+    "french": "fr",
+    "german": "de",
+    "italian": "it",
+    "portuguese": "pt",
+    "arabic": "ar",
+    "japanese": "ja",
+    "korean": "ko",
+    "chinese": "zh",
+}
+
+# Whisper's supported ISO-639-1 language codes.  Validate against this set so
+# placeholders (for example, legacy "auto") and malformed strings are never
+# presented as a detected driver language.
+WHISPER_LANGUAGE_CODES = {
+    "af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la", "lb", "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi", "yi", "yo", "zh",
+}
+
+
+def normalize_language(value: Any) -> str:
+    """Normalise Whisper's language token without inventing an unknown language."""
+    if isinstance(value, (list, tuple)):
+        value = next((item for item in value if item), None)
+    if not value:
+        return "und"
+    text = str(value).strip().lower()
+    token = re.fullmatch(r"<\|([a-z]{2,3})\|>", text)
+    if token:
+        text = token.group(1)
+    text = LANGUAGE_ALIASES.get(text, text.split("-", 1)[0])
+    return text if text in WHISPER_LANGUAGE_CODES else "und"
 
 
 class HuggingFaceAudioEmotion(AudioEmotionProvider):
@@ -188,6 +240,75 @@ class PromotedRaceRadioEmotion(AudioEmotionProvider):
         return label, confidence, scores
 
 
+def benchmark_promotion(settings: Settings) -> dict[str, Any] | None:
+    return load_signed_promotion_manifest(
+        Path(settings.benchmark_promotion_manifest),
+        settings.benchmark_signing_key,
+        Path(settings.emotion_calibration_dir),
+    )
+
+
+class CalibratedCandidateEmotion(AudioEmotionProvider):
+    """Runtime adapter activated only by a signed benchmark promotion manifest."""
+
+    def __init__(self, settings: Settings, promotion: dict[str, Any]):
+        self.settings = settings
+        self.promotion = promotion
+        self._candidate = None
+        self._artifact = None
+
+    def _load(self):
+        if self._artifact is None:
+            import joblib
+
+            candidate_id = str(self.promotion["candidate_id"])
+            spec = get_candidate_spec(candidate_id)
+            if spec.model_id != self.promotion["model_id"]:
+                raise RuntimeError("The promoted candidate model ID does not match the registered adapter.")
+            artifact_path = safe_calibration_path(Path(self.settings.emotion_calibration_dir), str(self.promotion["calibration_artifact"]))
+            artifact = joblib.load(artifact_path)
+            expected = {"candidate_id": candidate_id, "model_id": spec.model_id, "model_revision": self.promotion["model_revision"]}
+            if any(artifact.get(key) != value for key, value in expected.items()):
+                raise RuntimeError("The promoted calibration artifact does not match its signed manifest.")
+            self._candidate = build_audio_candidate(candidate_id, str(self.promotion["model_revision"]))
+            self._artifact = artifact
+        return self._candidate, self._artifact
+
+    def analyse(self, audio_path: Path) -> list[EmotionWindowResult]:
+        candidate, artifact = self._load()
+        classifier = artifact["classifier"]
+        classes = [str(label) for label in artifact["classes"]]
+        threshold = float((self.promotion.get("benchmark") or {}).get("metrics", {}).get("confidence_threshold", 1.0))
+        windows = []
+        for window in candidate.analyse(audio_path):
+            probabilities = classifier.predict_proba(candidate.feature_vector(window).reshape(1, -1))[0]
+            calibrated = {label: float(score) for label, score in zip(classes, probabilities)}
+            label = max(TRAINED_LABELS, key=lambda item: calibrated.get(item, 0.0))
+            confidence = calibrated.get(label, 0.0)
+            if confidence < threshold:
+                label = "uncertain"
+            scores = {item: calibrated.get(item, 0.0) for item in TRAINED_LABELS}
+            scores["uncertain"] = max(0.0, 1.0 - confidence) if label == "uncertain" else 0.0
+            windows.append(EmotionWindowResult(
+                window.start,
+                window.end,
+                label,
+                window.raw_label,
+                confidence,
+                scores,
+                {
+                    "candidate_id": candidate.spec.identifier,
+                    "model_id": candidate.spec.model_id,
+                    "model_revision": candidate.revision,
+                    "native_scores": window.native_scores,
+                    "dimensions": window.dimensions,
+                    "calibration_version": artifact.get("calibration_version"),
+                    "latency_ms": window.latency_ms,
+                },
+            ))
+        return windows
+
+
 class HuggingFaceTextEmotion(TextEmotionProvider):
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -219,9 +340,12 @@ class ProviderBundle:
 
 
 def build_provider_bundle(settings: Settings) -> ProviderBundle:
+    promotion = benchmark_promotion(settings)
     metadata = load_promoted_metadata(Path(settings.emotion_artifact_dir))
     audio_provider: AudioEmotionProvider
-    if metadata and passes_promotion_gate(metadata.get("test_metrics", {}), settings.emotion_target_accuracy):
+    if promotion:
+        audio_provider = CalibratedCandidateEmotion(settings, promotion)
+    elif metadata and passes_promotion_gate(metadata.get("test_metrics", {}), settings.emotion_target_accuracy):
         audio_provider = PromotedRaceRadioEmotion(settings)
     else:
         audio_provider = HuggingFaceAudioEmotion(settings)
@@ -229,6 +353,30 @@ def build_provider_bundle(settings: Settings) -> ProviderBundle:
 
 
 def emotion_model_status(settings: Settings) -> dict[str, Any]:
+    promotion = benchmark_promotion(settings)
+    if promotion:
+        benchmark = promotion.get("benchmark") or {}
+        metrics = benchmark.get("metrics") or {}
+        spec = get_candidate_spec(str(promotion["candidate_id"]))
+        return {
+            "model": spec.model_id,
+            "configured": True,
+            "promoted": True,
+            "model_version": promotion.get("model_revision"),
+            "validation_accuracy": metrics.get("balanced_accuracy"),
+            "confidence_threshold": metrics.get("confidence_threshold"),
+            "prediction_coverage": metrics.get("prediction_coverage"),
+            "analyzer_provenance": {
+                "candidate_id": spec.identifier,
+                "model_id": spec.model_id,
+                "backbone": spec.backbone,
+                "model_revision": promotion.get("model_revision"),
+                "calibration_version": (promotion.get("benchmark") or {}).get("calibration_version"),
+                "language_scope": list(spec.language_scope),
+                "benchmark": benchmark,
+                "promotion_state": "signed_promoted",
+            },
+        }
     metadata = load_promoted_metadata(Path(settings.emotion_artifact_dir))
     if metadata and passes_promotion_gate(metadata.get("test_metrics", {}), settings.emotion_target_accuracy):
         return {
@@ -239,6 +387,7 @@ def emotion_model_status(settings: Settings) -> dict[str, Any]:
             "validation_accuracy": metadata.get("validation_accuracy"),
             "confidence_threshold": metadata.get("confidence_threshold"),
             "prediction_coverage": metadata.get("prediction_coverage"),
+            "analyzer_provenance": {"candidate_id": "custom-race-radio", "promotion_state": "legacy_promoted"},
         }
     return {
         "model": settings.hf_audio_emotion_model,
@@ -248,6 +397,15 @@ def emotion_model_status(settings: Settings) -> dict[str, Any]:
         "validation_accuracy": None,
         "confidence_threshold": None,
         "prediction_coverage": None,
+        "analyzer_provenance": {
+            "candidate_id": "baseline-superb",
+            "model_id": settings.hf_audio_emotion_model,
+            "backbone": get_candidate_spec("baseline-superb").backbone,
+            "model_revision": None,
+            "language_scope": ["en"],
+            "promotion_state": "baseline",
+            "benchmark": None,
+        },
     }
 
 
