@@ -5,6 +5,8 @@ import numpy as np
 import pytest
 
 from app.jobs import ANALYSIS_PHASE_PROGRESS
+from app.config import Settings
+from app.services.ai import HuggingFaceSpeechToText, normalize_language
 from app.ml.emotion import (
     ManifestValidationError,
     passes_promotion_gate,
@@ -68,4 +70,29 @@ def test_analysis_phase_progress_is_monotonic():
     values = [ANALYSIS_PHASE_PROGRESS[phase] for phase in ordered]
     assert values == sorted(values)
     assert values[-1] == 100
+
+
+def test_whisper_transcription_requests_source_language_and_returns_detection(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakePipeline:
+        def __call__(self, audio, **kwargs):
+            captured["audio"] = audio
+            captured.update(kwargs)
+            return {"text": "  hello driver  ", "language": "<|en|>", "chunks": [{"text": "hello driver", "timestamp": (0.2, 1.3)}]}
+
+    monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(1600, dtype=np.float32), 16000))
+    provider = HuggingFaceSpeechToText(Settings())
+    provider._pipeline = FakePipeline()
+    result = provider.transcribe(tmp_path / "radio.wav")
+    assert captured["return_language"] is True
+    assert captured["generate_kwargs"] == {"task": "transcribe"}
+    assert result.language == "en"
+    assert result.segments[0].text == "hello driver"
+
+
+def test_unknown_whisper_language_remains_undetermined():
+    assert normalize_language(None) == "und"
+    assert normalize_language("auto") == "und"
+    assert normalize_language("not-a-language") == "und"
 

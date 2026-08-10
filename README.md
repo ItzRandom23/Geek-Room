@@ -32,7 +32,7 @@ flowchart LR
 
 The defaults are environment-configurable Hugging Face model IDs:
 
-- `openai/whisper-tiny` for multilingual speech-to-text with automatic language handling.
+- `openai/whisper-small` for higher-accuracy multilingual speech-to-text with automatic language handling.
 - `superb/wav2vec2-base-superb-er` as the generic audio-emotion fallback.
 - `j-hartmann/emotion-english-distilroberta-base` for optional transcript emotion support.
 - `microsoft/wavlm-base-plus` for frozen embeddings in the trainable race-radio classifier.
@@ -41,7 +41,9 @@ Models are loaded by the backend with `transformers` and `torch`. Set `HF_TOKEN`
 
 For domain training, provide a speaker-labeled CSV and run `python -m app.ml.train --manifest <path>`. PitSense promotes the generated artifact only when the untouched speaker-held-out test set reaches the configured 99% balanced-accuracy and macro-F1 gate. Until then, the generic model remains active and the UI does not claim 99%. See [model training](docs/model-training.md).
 
-The dependency pin uses PyTorch `>=2.6,<3` because the supplied Python 3.13 runtime does not have a compatible wheel for PyTorch 2.5.1; the requested PyTorch/Transformers stack is otherwise unchanged. Whisper handles multilingual speech; the optional text-emotion model is strongest for English, while audio emotion remains the primary signal for every language.
+For research candidates, use the separate GPU benchmark workflow. It compares version-pinned adapters against the baseline through an identical calibration head and only activates a candidate after a signed, held-out race-radio result passes safety, coverage, language, and license gates. See [audio-emotion benchmarking](docs/model-benchmark.md).
+
+Whisper runs in explicit source-language transcription mode: driver radio is stored and displayed in the detected spoken language rather than translated. The optional text-emotion and English urgency signals run only for English transcripts; audio emotion remains the primary signal for every language. Whisper Small is slower than Tiny on CPU, so the default worker timeout is 15 minutes and remains configurable through `MODEL_TIMEOUT_SECONDS`.
 
 ## Local setup
 
@@ -79,7 +81,7 @@ docker compose up --build
 
 ## Environment variables
 
-See [.env.example](.env.example) and [backend/.env.example](backend/.env.example). Important values include `HF_TOKEN`, `HF_STT_MODEL`, `HF_AUDIO_EMOTION_MODEL`, `HF_TEXT_EMOTION_MODEL`, `MAX_UPLOAD_MB`, `MAX_AUDIO_DURATION_SECONDS`, `DATABASE_URL`, `REDIS_URL`, `CORS_ORIGINS`, `STORAGE_BACKEND`, `S3_BUCKET`, `RETENTION_DAYS`, `AUTH_REQUIRED`, and `JWT_SECRET`. Keep tokens only in an untracked `.env`; the example file intentionally contains no secret.
+See [.env.example](.env.example) and [backend/.env.example](backend/.env.example). Important values include `HF_TOKEN`, `HF_STT_MODEL`, `HF_AUDIO_EMOTION_MODEL`, `HF_TEXT_EMOTION_MODEL`, `MAX_UPLOAD_MB`, `MAX_AUDIO_DURATION_SECONDS`, `MODEL_TIMEOUT_SECONDS`, `DATABASE_URL`, `REDIS_URL`, `CORS_ORIGINS`, `STORAGE_BACKEND`, `S3_BUCKET`, `RETENTION_DAYS`, `AUTH_REQUIRED`, and `JWT_SECRET`. Keep tokens only in an untracked `.env`; the example file intentionally contains no secret.
 
 ## CSV format
 
@@ -99,7 +101,7 @@ Sessions: `POST /api/sessions`, `GET /api/sessions`, `GET /api/sessions/{id}`, `
 
 Analysis: `POST /api/sessions/{id}/analyse` returns `202` with a `job_id`; poll `GET /api/jobs/{job_id}`, cancel with `POST /api/sessions/{id}/analysis/cancel`, and retry failed jobs with `POST /api/jobs/{job_id}/retry`.
 
-Audio/laps/reports: audio upload/replace/delete, lap CSV/manual endpoints, `GET /timeline`, `GET /report`, and JSON/CSV/PDF exports. Health endpoints are `GET /health`, `GET /readiness`, and `GET /models/status`.
+Audio/laps/reports: audio upload/replace/delete, lap CSV/manual endpoints, `GET /timeline`, `GET /report`, and JSON/CSV/PDF exports. Reports preserve source-language transcript evidence in every export; PDF generation uses Unicode-capable Noto font fallback in the container. Health endpoints are `GET /health`, `GET /readiness`, and `GET /models/status`.
 
 ## Demo instructions
 
