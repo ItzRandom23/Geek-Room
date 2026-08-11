@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./pitsense.db"
     hf_token: str | None = None
     hf_stt_model: str = "openai/whisper-small"
+    stt_language: str = "en"
     hf_audio_emotion_model: str = "superb/wav2vec2-base-superb-er"
     hf_text_emotion_model: str = "j-hartmann/emotion-english-distilroberta-base"
     hf_embedding_model: str = "microsoft/wavlm-base-plus"

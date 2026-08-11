@@ -43,7 +43,7 @@ For domain training, provide a speaker-labeled CSV and run `python -m app.ml.tra
 
 For research candidates, use the separate GPU benchmark workflow. It compares version-pinned adapters against the baseline through an identical calibration head and only activates a candidate after a signed, held-out race-radio result passes safety, coverage, language, and license gates. See [audio-emotion benchmarking](docs/model-benchmark.md).
 
-Whisper runs in explicit source-language transcription mode: driver radio is stored and displayed in the detected spoken language rather than translated. The optional text-emotion and English urgency signals run only for English transcripts; audio emotion remains the primary signal for every language. Whisper Small is slower than Tiny on CPU, so the default worker timeout is 15 minutes and remains configurable through `MODEL_TIMEOUT_SECONDS`.
+Whisper runs in explicit source-language transcription mode and defaults to English (`STT_LANGUAGE=en`) so short, noisy English radio clips are not incorrectly decoded as Spanish. Set `STT_LANGUAGE=auto` to restore multilingual auto-detection, or set another supported Whisper language code. The optional text-emotion and English urgency signals run only for English transcripts; audio emotion remains the primary signal for every language. Whisper Small is slower than Tiny on CPU, so the default worker timeout is 15 minutes and remains configurable through `MODEL_TIMEOUT_SECONDS`.
 
 ## Local setup
 
@@ -69,6 +69,12 @@ npm run dev
 ```
 
 Open http://localhost:3000. The API docs are at http://localhost:8000/docs.
+
+### Backend on Vercel
+
+Create a separate Vercel project for the API and set its **Root Directory** to `backend`. Vercel detects `index.py` as the FastAPI entrypoint; no build or output command is needed. For a persistent production deployment configure `DATABASE_URL` with PostgreSQL, `STORAGE_BACKEND=s3`, `S3_BUCKET` (plus region/endpoint when needed), `REDIS_URL`, `CORS_ORIGINS` with the frontend origin, `AUTH_REQUIRED=true`, a strong `JWT_SECRET`, and `ENVIRONMENT=production`. A worker running `python -m app.worker` must consume the Redis analysis queue outside the request-serving Vercel function.
+
+Preview deployments can boot with temporary SQLite and uploads under `/tmp`, but that data is ephemeral and must not be treated as persistent. The local ML dependencies are large; ensure the Vercel project supports the resulting Python function bundle, or keep the API on Vercel and run the analysis worker on a container/GPU service using the same Postgres, Redis, and S3 configuration.
 
 On Windows, after installing the backend dependencies once, you can double-click [start-pitsense.bat](start-pitsense.bat) to launch both services and open the dashboard automatically.
 

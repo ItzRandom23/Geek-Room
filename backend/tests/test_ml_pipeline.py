@@ -72,23 +72,39 @@ def test_analysis_phase_progress_is_monotonic():
     assert values[-1] == 100
 
 
-def test_whisper_transcription_requests_source_language_and_returns_detection(monkeypatch, tmp_path):
+def test_whisper_forces_configured_english_when_detection_says_spanish(monkeypatch, tmp_path):
     captured = {}
 
     class FakePipeline:
         def __call__(self, audio, **kwargs):
             captured["audio"] = audio
             captured.update(kwargs)
-            return {"text": "  hello driver  ", "language": "<|en|>", "chunks": [{"text": "hello driver", "timestamp": (0.2, 1.3)}]}
+            return {"text": "  hello driver  ", "language": "<|es|>", "chunks": [{"text": "hello driver", "timestamp": (0.2, 1.3)}]}
 
     monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(1600, dtype=np.float32), 16000))
     provider = HuggingFaceSpeechToText(Settings())
     provider._pipeline = FakePipeline()
     result = provider.transcribe(tmp_path / "radio.wav")
     assert captured["return_language"] is True
-    assert captured["generate_kwargs"] == {"task": "transcribe"}
+    assert captured["generate_kwargs"] == {"task": "transcribe", "language": "en"}
     assert result.language == "en"
     assert result.segments[0].text == "hello driver"
+
+
+def test_whisper_can_still_auto_detect_language(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakePipeline:
+        def __call__(self, _audio, **kwargs):
+            captured.update(kwargs)
+            return {"text": "hola", "language": "<|es|>", "chunks": []}
+
+    monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(1600, dtype=np.float32), 16000))
+    provider = HuggingFaceSpeechToText(Settings(stt_language="auto"))
+    provider._pipeline = FakePipeline()
+    result = provider.transcribe(tmp_path / "radio.wav")
+    assert captured["generate_kwargs"] == {"task": "transcribe"}
+    assert result.language == "es"
 
 
 def test_unknown_whisper_language_remains_undetermined():
