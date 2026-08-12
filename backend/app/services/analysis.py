@@ -7,7 +7,7 @@ from .labels import NORMALIZED
 
 HIGH_STRESS = {"stressed", "frustrated", "urgent"}
 URGENCY_WORDS = {"box", "smoke", "fire", "unsafe", "damage", "urgent", "now", "push", "problem", "tyre", "tire"}
-RISK_ORDER = {"uncertain": 0, "calm": 1, "tired": 2, "stressed": 3, "frustrated": 4, "urgent": 5}
+RISK_ORDER = {"uncertain": 0, "calm": 1, "positive": 1, "subdued": 2, "tired": 2, "stressed": 3, "frustrated": 4, "urgent": 5}
 
 
 @dataclass
@@ -281,13 +281,12 @@ def build_report(
             "confidence": dominant_summary["average_confidence"],
             "duration_seconds": dominant_summary["duration_seconds"],
         }
-    primary_event = highest_risk or (max(report_events, key=lambda item: ((item.end - item.start) * item.confidence, item.confidence), default=None))
     transcript_rows = _transcript_rows(transcript_segments)
     speech_coverage = _coverage_seconds(transcript_segments)
     return {
         "schema_version": 2,
-        "primary_state": primary_event.label if primary_event else "uncertain",
-        "confidence": round(primary_event.confidence if primary_event else 0, 3),
+        "primary_state": dominant_state["label"] if dominant_state else "uncertain",
+        "confidence": round(dominant_state["confidence"] if dominant_state else 0, 3),
         "transcript": transcript,
         "timestamped_transcript": transcript_rows,
         "timestamped_events": timestamped_events,

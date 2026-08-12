@@ -178,8 +178,37 @@ class HuggingFaceAudioEmotion(AudioEmotionProvider):
             raw_scores = {str(item["label"]): float(item["score"]) for item in predictions}
             normalized = normalize_scores(raw_scores)
             raw_label, raw_confidence = max(raw_scores.items(), key=lambda item: item[1])
-            label = max(normalized.items(), key=lambda item: item[1])[0]
-            windows.append(EmotionWindowResult(float(start), float(end), label, raw_label, float(raw_confidence), normalized, {"predictions": predictions}))
+            ranked = sorted(
+                ((label, score) for label, score in normalized.items() if label != "uncertain"),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            candidate_label, candidate_confidence = ranked[0]
+            runner_up = ranked[1][1] if len(ranked) > 1 else 0.0
+            margin = candidate_confidence - runner_up
+            accepted = (
+                candidate_confidence >= self.settings.emotion_confidence_threshold
+                and margin >= self.settings.emotion_margin_threshold
+            )
+            label = candidate_label if accepted else "uncertain"
+            windows.append(EmotionWindowResult(
+                float(start),
+                float(end),
+                label,
+                raw_label,
+                float(candidate_confidence),
+                normalized,
+                {
+                    "predictions": predictions,
+                    "raw_top_confidence": float(raw_confidence),
+                    "candidate_label": candidate_label,
+                    "candidate_confidence": float(candidate_confidence),
+                    "confidence_margin": float(margin),
+                    "accepted": accepted,
+                    "confidence_threshold": self.settings.emotion_confidence_threshold,
+                    "margin_threshold": self.settings.emotion_margin_threshold,
+                },
+            ))
         return windows
 
 

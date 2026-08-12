@@ -9,6 +9,8 @@ def lap(number, time, start):
 
 def test_label_mapping_and_fusion_shape():
     assert normalize_label("fear") == "stressed"
+    assert normalize_label("happy") == "positive"
+    assert normalize_label("sad") == "subdued"
     scores = normalize_scores({"angry": 0.8, "neutral": 0.2})
     assert round(sum(scores.values()), 4) == 1
     assert scores["frustrated"] > scores["calm"]
@@ -85,3 +87,16 @@ def test_dominant_state_uses_total_merged_evidence_not_one_window():
     )
     assert report["summary"]["dominant_state"]["label"] == "stressed"
     assert report["summary"]["highest_risk_event"]["label"] == "urgent"
+
+
+def test_overall_state_is_not_overridden_by_one_short_risk_window():
+    report = build_report(
+        [
+            Event("calm", 0.88, 0, 20),
+            Event("frustrated", 0.72, 21, 23),
+        ],
+        [],
+        "",
+    )
+    assert report["primary_state"] == "calm"
+    assert report["summary"]["highest_risk_event"]["label"] == "frustrated"

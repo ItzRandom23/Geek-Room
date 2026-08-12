@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     hf_audio_emotion_model: str = "superb/wav2vec2-base-superb-er"
     hf_text_emotion_model: str = "j-hartmann/emotion-english-distilroberta-base"
     hf_embedding_model: str = "microsoft/wavlm-base-plus"
+    emotion_confidence_threshold: float = 0.70
+    emotion_margin_threshold: float = 0.20
     emotion_artifact_dir: str = "./artifacts/emotion"
     emotion_target_accuracy: float = 0.99
     emotion_calibration_dir: str = "./artifacts/emotion/benchmark"

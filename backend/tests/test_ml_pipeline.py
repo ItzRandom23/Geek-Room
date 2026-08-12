@@ -6,7 +6,7 @@ import pytest
 
 from app.jobs import ANALYSIS_PHASE_PROGRESS
 from app.config import Settings
-from app.services.ai import HuggingFaceSpeechToText, normalize_language
+from app.services.ai import HuggingFaceAudioEmotion, HuggingFaceSpeechToText, normalize_language
 from app.ml.emotion import (
     ManifestValidationError,
     passes_promotion_gate,
@@ -111,4 +111,41 @@ def test_unknown_whisper_language_remains_undetermined():
     assert normalize_language(None) == "und"
     assert normalize_language("auto") == "und"
     assert normalize_language("not-a-language") == "und"
+
+
+def test_audio_baseline_rejects_ambiguous_prediction(monkeypatch, tmp_path):
+    class FakePipeline:
+        def __call__(self, _audio, **_kwargs):
+            return [
+                {"label": "neu", "score": 0.40},
+                {"label": "hap", "score": 0.36},
+                {"label": "ang", "score": 0.14},
+                {"label": "sad", "score": 0.10},
+            ]
+
+    monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(16000, dtype=np.float32), 16000))
+    provider = HuggingFaceAudioEmotion(Settings(emotion_confidence_threshold=0.35, emotion_margin_threshold=0.10))
+    provider._pipeline = FakePipeline()
+    result = provider.analyse(tmp_path / "radio.wav")
+    assert result[0].label == "uncertain"
+    assert result[0].raw["candidate_label"] == "calm"
+    assert result[0].raw["accepted"] is False
+
+
+def test_audio_baseline_preserves_supported_positive_state(monkeypatch, tmp_path):
+    class FakePipeline:
+        def __call__(self, _audio, **_kwargs):
+            return [
+                {"label": "hap", "score": 0.78},
+                {"label": "neu", "score": 0.12},
+                {"label": "ang", "score": 0.06},
+                {"label": "sad", "score": 0.04},
+            ]
+
+    monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(16000, dtype=np.float32), 16000))
+    provider = HuggingFaceAudioEmotion(Settings())
+    provider._pipeline = FakePipeline()
+    result = provider.analyse(tmp_path / "radio.wav")
+    assert result[0].label == "positive"
+    assert result[0].confidence == 0.78
 
