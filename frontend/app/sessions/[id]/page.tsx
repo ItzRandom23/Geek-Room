@@ -4,13 +4,24 @@ import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "re
 import { useParams } from "next/navigation";
 import { FileAudio, FileDown, RefreshCw, UploadCloud, X } from "lucide-react";
 import { api, AnalysisJob, ApiError, Lap, Session, TimelineEvent, pollJob } from "../../../lib/api";
-import { validateAudioFile } from "../../../lib/validation";
+import { normalizeManualLaps, validateAudioFile } from "../../../lib/validation";
 import { Badge, Button, ErrorBox } from "../../../components/ui";
 import { ProcessingPanel } from "../../../components/processing-panel";
 import { ResultsDashboard } from "../../../components/results-dashboard";
 
 type Mode = "audio_only" | "lap_correlated";
 const emptyLap = (lapNumber: number): Omit<Lap, "id"> => ({ lap_number: lapNumber, lap_time_seconds: 0, start_timestamp_seconds: 0, end_timestamp_seconds: 0 });
+
+function errorHeading(message: string) {
+  const value = message.toLowerCase();
+  if (value.includes("too many requests") || value.includes("wait 60")) return "Please slow down";
+  if (value.includes("lap") || value.includes("csv") || value.includes("timestamp")) return "Lap data needs correction";
+  if (value.includes("audio") || value.includes("wav") || value.includes("mp3") || value.includes("m4a") || value.includes("ogg")) return "Audio needs attention";
+  if (value.includes("backend") || value.includes("server") || value.includes("network")) return "Cannot reach the analysis server";
+  if (value.includes("analysis") || value.includes("model") || value.includes("worker")) return "Analysis could not complete";
+  if (value.includes("locked") || value.includes("progress")) return "Inputs are temporarily locked";
+  return "Please check and try again";
+}
 
 export default function SessionPage() {
   const params = useParams();
@@ -31,6 +42,7 @@ export default function SessionPage() {
   const [csvPreview, setCsvPreview] = useState("");
   const audioRef = useRef<HTMLAudioElement>(null);
   const pollController = useRef<AbortController | null>(null);
+  const analyseLock = useRef(false);
 
   const load = async () => {
     try {
@@ -134,7 +146,7 @@ export default function SessionPage() {
       setBusy("csv"); setError("");
       await api.uploadCsv(id, pendingCsv);
       setPendingCsv(null); setCsvPreview(""); setMode("lap_correlated");
-      setNotice("Real lap timing imported. Correlation is now available.");
+      setNotice(`Real lap timing imported. ${audio?.original_filename || "Your audio"} is still attached and ready for correlation.`);
       await load();
     } catch (caught) { setError(caught instanceof ApiError ? caught.message : (caught as Error).message); }
     finally { setBusy(""); }
@@ -146,24 +158,20 @@ export default function SessionPage() {
 
   async function saveManual() {
     if (!guardMutable()) return;
-    const valid = laps.filter((lap) => lap.lap_time_seconds > 0);
-    if (!valid.length) { setError("Enter real lap times or use audio-only analysis."); return; }
-    let elapsed = 0;
-    const normalized = valid.map((lap) => {
-      const next = { ...lap, start_timestamp_seconds: lap.start_timestamp_seconds || elapsed, end_timestamp_seconds: lap.end_timestamp_seconds || elapsed + lap.lap_time_seconds };
-      elapsed = next.end_timestamp_seconds;
-      return next;
-    });
+    const { rows: normalized, error: validationError } = normalizeManualLaps(laps);
+    if (validationError) { setError(validationError); return; }
     try {
       setBusy("laps"); setError("");
       await api.manualLaps(id, normalized);
-      setMode("lap_correlated"); setNotice("Manual lap timing saved. Verify it against telemetry before relying on correlations.");
+      setMode("lap_correlated"); setNotice(`Lap timing saved. ${audio?.original_filename || "Your audio"} is still attached and does not need to be uploaded again.`);
       await load();
     } catch (caught) { setError(caught instanceof ApiError ? caught.message : (caught as Error).message); }
     finally { setBusy(""); }
   }
 
   async function analyse() {
+    if (analyseLock.current || analysing) return;
+    analyseLock.current = true;
     try {
       setBusy("analyse"); setError("");
       pollController.current = new AbortController();
@@ -174,7 +182,7 @@ export default function SessionPage() {
       else setError(completed.error?.message || "Analysis did not complete.");
     } catch (caught) {
       if ((caught as Error).name !== "AbortError") setError(caught instanceof ApiError ? caught.message : (caught as Error).message);
-    } finally { setBusy(""); }
+    } finally { setBusy(""); analyseLock.current = false; }
   }
 
   async function cancel() {
@@ -201,13 +209,13 @@ export default function SessionPage() {
     } catch (caught) { setError(caught instanceof ApiError ? caught.message : (caught as Error).message); }
   }
 
-  if (error && !session) return <main className="mx-auto max-w-7xl px-6 py-12"><ErrorBox message={error} /></main>;
+  if (error && !session) return <main className="mx-auto max-w-7xl px-6 py-12"><ErrorBox title={errorHeading(error)} message={error} /></main>;
   if (!session) return <main className="mx-auto max-w-7xl px-6 py-20 text-slate-400">Loading session…</main>;
   const report = session.report;
 
   return <main className="mx-auto max-w-7xl px-6 py-10">
     <div className="flex flex-wrap items-start justify-between gap-5"><div><div className="eyebrow">Session {String(session.id).padStart(3, "0")} / {session.status}</div><h1 className="mt-2 text-3xl font-bold tracking-tight">{session.name}</h1><p className="mt-2 text-sm text-slate-400">{session.driver_name} · {session.circuit_name} · {session.is_demo ? "Explicit demo fixture" : "Live analysis"}</p></div><div className="flex flex-wrap gap-2"><Button className="border border-line bg-transparent text-slate-200 hover:bg-panel" onClick={() => void load()}><RefreshCw size={15} className="mr-1 inline" />Refresh</Button>{report && <><Button className="border border-line bg-transparent text-slate-200 hover:bg-panel" onClick={() => void download("json")}><FileDown size={15} className="mr-1 inline" />JSON</Button><Button className="border border-line bg-transparent text-slate-200 hover:bg-panel" onClick={() => void download("pdf")}>PDF</Button></>}</div></div>
-    {error && <div className="mt-6"><ErrorBox message={error} /></div>}
+    {error && <div className="mt-6"><ErrorBox title={errorHeading(error)} message={error} /></div>}
     {notice && <div className="mt-6 rounded-lg border border-cyan/30 bg-cyan/5 px-4 py-3 text-sm text-cyan">{notice}</div>}
     {inputsLocked && <div className="mt-5 rounded-lg border border-amber/30 bg-amber/5 px-4 py-3 text-sm text-amber-200">Audio and lap inputs are locked while analysis runs. Cancel the job before changing the source data.</div>}
 
@@ -221,7 +229,7 @@ export default function SessionPage() {
     {showLaps && <section className="mt-5 panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="eyebrow">Optional lap context</div><h2 className="mt-1 text-lg font-bold">Real timing data</h2></div><div className="flex gap-2"><label className={`rounded-lg border border-line px-3 py-2 text-xs font-semibold ${inputsLocked ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:border-cyan"}`}>Preview CSV<input type="file" accept=".csv,text/csv" onChange={(event) => void previewCsv(event)} disabled={inputsLocked} className="hidden" /></label><a href="/demo-laps.csv" download className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:border-cyan">CSV example</a></div></div><div className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">Use timing from telemetry or a timing sheet. Audio duration is never used as a lap time.</div>{pendingCsv && <div className="mt-4 rounded-lg border border-cyan/40 bg-cyan/5 p-4"><div className="flex items-center justify-between"><div className="text-sm font-semibold">Preview: {pendingCsv.name}</div><button aria-label="Clear CSV preview" onClick={() => { setPendingCsv(null); setCsvPreview(""); }} disabled={inputsLocked}><X size={16} /></button></div><pre className="mt-3 overflow-x-auto text-xs text-slate-400">{csvPreview}</pre><Button className="mt-3" onClick={() => void confirmCsv()} disabled={busy === "csv" || inputsLocked}>{busy === "csv" ? "Importing…" : "Confirm import"}</Button></div>}<div className="mt-4 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead className="text-xs uppercase tracking-wider text-slate-500"><tr><th className="pb-2">Lap</th><th className="pb-2">Lap time (s)</th><th className="pb-2">Start (s)</th><th className="pb-2">End (s)</th></tr></thead><tbody>{laps.map((lap, index) => <tr key={index} className="border-t border-line/60"><td className="py-2 text-slate-400">{lap.lap_number}</td>{(["lap_time_seconds", "start_timestamp_seconds", "end_timestamp_seconds"] as const).map((key) => <td key={key} className="py-2"><input aria-label={`Lap ${lap.lap_number} ${key}`} type="number" min="0" step="0.001" value={lap[key] ?? ""} onChange={(event) => updateLap(index, key, event.target.value)} disabled={inputsLocked} className="w-36 rounded border border-line bg-ink px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50" /></td>)}</tr>)}</tbody></table></div><div className="mt-4 flex flex-wrap items-center gap-3"><Button className="border border-line bg-transparent text-slate-200 hover:bg-panel" onClick={() => void saveManual()} disabled={inputsLocked || busy === "laps"}>{busy === "laps" ? "Saving…" : "Save manual laps"}</Button><span className="text-xs text-slate-500">Manual values are labelled in the report and should be verified.</span></div></section>}
 
     {job && analysing && <div className="mt-5"><ProcessingPanel job={job} onCancel={() => void cancel()} /></div>}
-    {!analysing && <section className="mt-5 panel flex flex-wrap items-center justify-between gap-5 border-signal/40 p-5"><div><div className="eyebrow">{report ? "Step 4 / refresh evidence" : "Step 4 / start analysis"}</div><h2 className="mt-1 text-xl font-bold">{report ? "Re-analyse original audio" : mode === "audio_only" ? "Analyse audio" : "Analyse with lap correlation"}</h2><p className="mt-2 text-sm text-slate-400">{report ? "Run the selected mode again after changing source data, updating models, or when a legacy report has no detected language." : mode === "audio_only" ? "Transcribe in the spoken language, classify vocal tone, and produce human-reviewable recommendations." : "Use only supplied real lap timestamps. Results are associations, not proof of causation."}</p></div><Button disabled={!audio} onClick={() => void analyse()}>{audio ? report ? "Re-analyse" : "Start analysis" : "Upload audio first"}</Button></section>}
+    {!analysing && <section className="mt-5 panel flex flex-wrap items-center justify-between gap-5 border-signal/40 p-5"><div><div className="eyebrow">{report ? "Step 4 / refresh evidence" : "Step 4 / start analysis"}</div><h2 className="mt-1 text-xl font-bold">{report ? "Re-analyse original audio" : mode === "audio_only" ? "Analyse audio" : "Analyse with lap correlation"}</h2><p className="mt-2 text-sm text-slate-400">{report ? "Run the selected mode again after changing source data, updating models, or when a legacy report has no detected language." : mode === "audio_only" ? "Transcribe in the spoken language, classify vocal tone, and produce human-reviewable recommendations." : `Use ${audio?.original_filename || "the attached audio"} with the saved lap timestamps. You do not need to upload it again.`}</p></div><Button disabled={!audio || Boolean(busy)} onClick={() => void analyse()}>{busy === "analyse" ? "Starting…" : audio ? report ? "Re-analyse" : "Start analysis" : "Upload audio first"}</Button></section>}
     {report && <ResultsDashboard report={report} timeline={timeline} chartData={chartData} selected={selected} onSelect={seek} onDownload={download} />}
   </main>;
 }

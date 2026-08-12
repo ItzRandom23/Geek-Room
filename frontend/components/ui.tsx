@@ -26,11 +26,11 @@ export function StatusIcon({ status }: { status: string }) {
   return <CircleDashed className="text-slate-500" size={16} />;
 }
 
-export function ErrorBox({ message }: { message: string }) {
+export function ErrorBox({ message, title = "Action needed" }: { message: string; title?: string }) {
   return (
     <div role="alert" className="flex gap-3 rounded-lg border border-[rgba(255,92,26,0.35)] bg-[rgba(255,92,26,0.1)] p-4 text-sm text-red-100 shadow-[0_0_20px_rgba(255,61,0,0.12)]">
       <ShieldAlert size={18} className="mt-0.5 shrink-0 text-signal" />
-      <span>{message}</span>
+      <div><strong className="block text-white">{title}</strong><span className="mt-1 block leading-5 text-red-100/80">{message}</span></div>
     </div>
   );
 }

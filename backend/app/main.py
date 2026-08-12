@@ -67,7 +67,11 @@ async def request_id_middleware(request: Request, call_next):
         while events and events[0] < cutoff:
             events.popleft()
         if len(events) >= limit:
-            return JSONResponse(status_code=429, content={"error": {"code": "RATE_LIMITED", "message": "Too many requests. Please wait before retrying.", "retryable": True, "request_id": request_id}}, headers={"Retry-After": "60", "x-request-id": request_id})
+            headers = {"Retry-After": "60", "x-request-id": request_id}
+            origin = request.headers.get("origin")
+            if origin and origin in settings.cors_list:
+                headers.update({"Access-Control-Allow-Origin": origin, "Access-Control-Allow-Credentials": "true", "Vary": "Origin"})
+            return JSONResponse(status_code=429, content={"error": {"code": "RATE_LIMITED", "message": "Too many requests. Please wait before retrying.", "retryable": True, "request_id": request_id}}, headers=headers)
         events.append(time.monotonic())
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
@@ -492,7 +496,7 @@ async def upload_laps_csv(session_id: int, csv_file: UploadFile = File(...), db:
     rows = await parse_lap_csv(csv_file)
     db.query(Lap).filter(Lap.session_id == session.id).delete()
     db.add_all([Lap(session_id=session.id, **row) for row in rows])
-    session.status = "ready"
+    session.status = "audio_ready" if session.active_clip_id else "ready"
     db.commit()
     return {"count": len(rows), "laps": rows}
 
@@ -506,7 +510,7 @@ def upload_laps_manual(session_id: int, rows: list[LapInput], db: DbSession = De
     validate_lap_rows([row.model_dump() for row in rows])
     db.query(Lap).filter(Lap.session_id == session.id).delete()
     db.add_all([Lap(session_id=session.id, **row.model_dump()) for row in rows])
-    session.status = "ready"
+    session.status = "audio_ready" if session.active_clip_id else "ready"
     db.commit()
     return {"count": len(rows)}
 
