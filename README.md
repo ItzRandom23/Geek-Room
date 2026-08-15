@@ -41,7 +41,7 @@ flowchart LR
 
   UI -->|REST + multipart| AUTH
   UI -->|REST + multipart| SESSIONS
-  UI -->|Poll GET /jobs/{id}| JOBS
+  UI -->|"Poll GET /jobs/id"| JOBS
   UI -->|Download| EXPORTS
   SESSIONS --> PG
   SESSIONS --> S3
