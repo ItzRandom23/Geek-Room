@@ -3,7 +3,7 @@ import { AudioLines, BrainCircuit, Database, GitCompareArrows, LockKeyhole, type
 const cards: { icon: LucideIcon; title: string; copy: string }[] = [
   { icon: AudioLines, title: "Multilingual speech-to-text", copy: "Multilingual Whisper runs in the FastAPI backend, detects the spoken language automatically, and returns a complete transcript plus timestamped chunks where the model provides them." },
   { icon: BrainCircuit, title: "Audio emotion", copy: "A Hugging Face audio-classification model is the primary, language-independent tone signal. The clip is evaluated in overlapping windows." },
-  { icon: GitCompareArrows, title: "Fusion and correlation", copy: "Audio scores are normalized to six application labels. Optional text emotion, urgency keywords, and confidence adjust the event score; high-stress windows are mapped to the active lap and its successor." },
+  { icon: GitCompareArrows, title: "Fusion and correlation", copy: "Audio scores are normalized into an honest application vocabulary. Ambiguous windows are marked uncertain instead of forcing a confident label; high-stress windows are mapped to the active lap and its successor." },
   { icon: Database, title: "Deterministic report", copy: "Rules compare affected laps with the session median, flag deterioration, and produce recommendations. They show association, not causation." },
   { icon: LockKeyhole, title: "Privacy", copy: "Audio stays in the backend storage directory. No external LLM is used. Delete a session to remove its audio and related database records." },
 ];
@@ -31,13 +31,13 @@ export default function Methodology() {
         <div>
         <div className="section-badge">Application labels</div>
         <div className="mt-4 flex flex-wrap gap-2">
-          {["calm", "stressed", "tired", "frustrated", "urgent", "uncertain"].map(label => (
+          {["calm", "positive", "subdued", "stressed", "tired", "frustrated", "urgent", "uncertain"].map(label => (
             <span className="chip border-white/15 bg-white/5 text-slate-300 capitalize" key={label}>{label}</span>
           ))}
         </div>
         </div>
         <p className="mt-5 max-w-xl text-sm leading-6 text-slate-400 md:mt-1">
-          Raw model labels such as neutral, fear, anger, sadness, or surprise are retained for transparency and mapped to the application vocabulary. Low confidence results surface “Manual review recommended.”
+          Raw model labels are retained for transparency. Neutral, happy, sad, and angry remain distinct as calm, positive, subdued, and frustrated; low-confidence or closely tied predictions become uncertain instead of being overstated.
         </p>
       </div>
     </main>

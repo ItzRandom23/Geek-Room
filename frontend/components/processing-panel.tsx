@@ -29,7 +29,7 @@ export function ProcessingPanel({ job, onCancel }: { job: AnalysisJob; onCancel:
   const cancelled = job.status === "cancelled";
   const activePhase = processingPhases[activeIndex];
   const statusTitle = failed ? "Analysis interrupted" : cancelled ? "Analysis cancelled" : activePhase?.detail || "Waiting for the analysis worker";
-  const waveformHeights = [12, 22, 31, 18, 38, 25, 44, 30, 18, 35, 24, 40, 28, 16, 32, 20, 12];
+  const waveformHeights = [12, 22, 31, 18, 38, 25, 44, 30, 18, 35, 24, 40, 28, 16, 32, 20, 12, 27, 42, 19, 34, 24, 39, 15, 29, 21, 36, 17];
 
   return (
     <section
@@ -40,8 +40,11 @@ export function ProcessingPanel({ job, onCancel }: { job: AnalysisJob; onCancel:
       style={{ "--analysis-progress": `${progress * 3.6}deg` } as CSSProperties}
     >
       <div className="analysis-scan" aria-hidden="true" />
+      <div className="analysis-signal-rail" aria-hidden="true"><span /><span /><span /></div>
       <div className="relative grid items-center gap-7 lg:grid-cols-[210px_1fr_auto]">
         <div className="analysis-core mx-auto" aria-label={`${progress}% complete`}>
+          <span className="analysis-radar-ring analysis-radar-ring-one" aria-hidden="true" />
+          <span className="analysis-radar-ring analysis-radar-ring-two" aria-hidden="true" />
           <div className="analysis-core-inner">
             {failed || cancelled ? <XCircle size={28} className={failed ? "text-signal" : "text-slate-400"} /> : <AudioWaveform size={27} className="text-cyan" />}
             <strong className="font-display text-3xl">{progress}%</strong>
@@ -52,7 +55,7 @@ export function ProcessingPanel({ job, onCancel }: { job: AnalysisJob; onCancel:
 
         <div className="min-w-0">
           <div className="eyebrow">Step 5 / live processing</div>
-          <h2 className="mt-3 text-xl font-bold">{statusTitle}</h2>
+          <div className="mt-3 flex flex-wrap items-center gap-3"><h2 className="text-xl font-bold">{statusTitle}</h2>{running && <span className="analysis-live-pill"><span />Worker live</span>}</div>
           <p className="mt-2 text-sm leading-6 text-slate-400">
             {failed
               ? job.error?.message || "The worker could not complete this analysis."
@@ -60,7 +63,7 @@ export function ProcessingPanel({ job, onCancel }: { job: AnalysisJob; onCancel:
                 ? "The uploaded audio is unchanged and ready to analyse again."
                 : "Measured probabilities are calibrated against the promoted model. Low-confidence audio resolves to uncertain."}
           </p>
-          <div className="analysis-waveform mt-5" aria-hidden="true">
+          <div className="analysis-waveform analysis-spectrum mt-5" aria-hidden="true">
             {waveformHeights.map((height, index) => <span key={index} style={{ height, animationDelay: `${index * -55}ms` }} />)}
           </div>
           <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/5">

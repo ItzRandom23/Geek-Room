@@ -6,7 +6,7 @@ import { CartesianGrid, ComposedChart, Line, ResponsiveContainer, Scatter, Toolt
 import { Report, ReportEvent, TimelineEvent, Transcript } from "../lib/api";
 import { Badge, Button } from "./ui";
 
-const labels = ["calm", "stressed", "tired", "frustrated", "urgent", "uncertain"];
+const labels = ["calm", "positive", "subdued", "stressed", "tired", "frustrated", "urgent", "uncertain"];
 
 type Props = {
   report: Report;
@@ -49,6 +49,7 @@ export function ResultsDashboard({ report, timeline, chartData, selected, onSele
   const risk = report.summary?.highest_risk_event;
   const dominant = report.summary?.dominant_state;
   const confidence = Math.round((report.confidence || 0) * 100);
+  const riskConfidence = Math.round((risk?.confidence || 0) * 100);
   const lapSummary = report.lap_summary;
   const analyzer = report.provenance?.audio_analyzer;
   const benchmarkMetrics = analyzer?.benchmark?.metrics;
@@ -58,7 +59,12 @@ export function ResultsDashboard({ report, timeline, chartData, selected, onSele
 
   const copyRecommendation = async () => {
     const recommendation = report.recommendations[0]?.recommendation;
-    if (recommendation && navigator.clipboard) await navigator.clipboard.writeText(recommendation);
+    if (!recommendation || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(recommendation);
+    } catch {
+      // Clipboard access is optional; the report remains fully usable without it.
+    }
   };
 
   return <section className="mt-5 space-y-5" aria-label="Analysis report">
@@ -83,8 +89,8 @@ export function ResultsDashboard({ report, timeline, chartData, selected, onSele
           </div>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <Metric label="Highest-risk state" value={report.primary_state} detail={`${confidence}% confidence`} tone="signal" />
-          <Metric label="Dominant state" value={dominant?.label || "uncertain"} detail={dominant ? `${formatTime(dominant.duration_seconds)} evidence` : "No reportable event"} tone="cyan" />
+          <Metric label="Overall state" value={report.primary_state} detail={`${confidence}% confidence`} tone="cyan" />
+          <Metric label="Highest-risk event" value={risk?.label || "none"} detail={risk ? `${riskConfidence}% confidence / ${formatTime(risk.duration_seconds)}` : "No reportable event"} tone="signal" />
           <Metric label="Speech coverage" value={formatTime(report.data_quality?.speech_coverage_seconds)} detail={`${report.summary?.event_count || 0} reportable events`} tone="green" />
         </div>
         {language === "und" && <div className="mt-4 rounded-lg border border-amber-400/35 bg-amber-400/5 p-3 text-sm text-amber-100">Source language was not available in this legacy evidence. Re-analyse the unchanged clip before relying on language-dependent signals.</div>}

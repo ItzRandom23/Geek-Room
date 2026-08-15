@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Activity, BookOpen, Flag, LogIn } from "lucide-react";
+import { Activity, BarChart3, BookOpen, Flag, LogIn, Shield, UserRound } from "lucide-react";
 import InteractiveBackground from "../components/interactive-background";
 import "./globals.css";
 
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" data-scroll-behavior="smooth">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -40,8 +40,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               <span className="font-display text-[15px] font-bold text-white sm:text-base">PITSENSE <span className="text-gradient-blue">AI</span></span>
             </Link>
             <nav aria-label="Primary navigation" className="flex items-center gap-1 text-sm">
-              <Link className="site-nav-link" href="/sessions" title="Sessions"><Activity size={15} className="text-cyan" /><span className="nav-label">Sessions</span></Link>
+              <Link className="site-nav-link" href="/sessions" title="Dashboard"><Activity size={15} className="text-cyan" /><span className="nav-label">Dashboard</span></Link>
+              <Link className="site-nav-link" href="/analytics" title="Analytics"><BarChart3 size={15} className="text-cyan" /><span className="nav-label">Analytics</span></Link>
               <Link className="site-nav-link" href="/methodology" title="Methodology"><BookOpen size={15} className="text-cyan" /><span className="nav-label">Methodology</span></Link>
+              <Link className="site-nav-link" href="/settings" title="Settings"><UserRound size={15} className="text-cyan" /><span className="nav-label">Settings</span></Link>
               <Link className="site-nav-link" href="/login" title="Team access"><LogIn size={15} className="text-cyan" /><span className="nav-label">Team access</span></Link>
             </nav>
           </div>

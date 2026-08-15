@@ -6,7 +6,7 @@ from app.config import get_settings
 from app.database import Base, engine
 from app.main import app
 from app.database import SessionLocal
-from app.models import AnalysisJob
+from app.models import AnalysisJob, AudioClip, Session
 
 
 client = TestClient(app)
@@ -58,4 +58,28 @@ def test_rejects_source_mutations_while_analysis_is_active():
     response = client.post(f"/api/sessions/{session_id}/laps/manual", json=[{"lap_number": 1, "lap_time_seconds": 90, "start_timestamp_seconds": 0, "end_timestamp_seconds": 90}])
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "ANALYSIS_IN_PROGRESS"
+    client.delete(f"/api/sessions/{session_id}")
+
+
+def test_saving_laps_preserves_active_audio():
+    created = client.post("/api/sessions", json={"name": "Preserve audio", "driver_name": "Test", "circuit_name": "Track"})
+    session_id = created.json()["id"]
+    db = SessionLocal()
+    try:
+        clip = AudioClip(session_id=session_id, original_filename="radio.wav", stored_filename="test-radio.wav", duration_seconds=90)
+        db.add(clip)
+        db.flush()
+        session = db.get(Session, session_id)
+        session.active_clip_id = clip.id
+        session.status = "audio_ready"
+        db.commit()
+        clip_id = clip.id
+    finally:
+        db.close()
+    response = client.post(f"/api/sessions/{session_id}/laps/manual", json=[{"lap_number": 1, "lap_time_seconds": 90, "start_timestamp_seconds": 0, "end_timestamp_seconds": 90}])
+    assert response.status_code == 200
+    detail = client.get(f"/api/sessions/{session_id}").json()
+    assert detail["active_clip_id"] == clip_id
+    assert detail["audio_count"] == 1
+    assert detail["status"] == "audio_ready"
     client.delete(f"/api/sessions/{session_id}")
