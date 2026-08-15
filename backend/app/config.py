@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     upload_dir: str = "./uploads"
     demo_mode: bool = True
-    auth_required: bool = False
+    auth_required: bool = True
     jwt_secret: str = "change-me-in-production"
     jwt_expiry_minutes: int = 720
     redis_url: str | None = None

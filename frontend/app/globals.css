@@ -62,12 +62,8 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
 }
 .brand-mark {
   position: relative; overflow: hidden; border: 1px solid rgba(83, 230, 225, .3);
-  background: linear-gradient(145deg, rgba(83, 230, 225, .28), rgba(83, 230, 225, .06));
+  background: rgba(4, 10, 17, .92);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 8px 24px rgba(83,230,225,.1);
-}
-.brand-mark::after {
-  position: absolute; inset: -100% 45%; content: ""; transform: rotate(22deg);
-  background: rgba(255,255,255,.38); animation: glass-sheen 7s ease-in-out infinite;
 }
 .site-nav-link {
   display: inline-flex; align-items: center; gap: 7px; min-height: 36px; border: 1px solid transparent;

@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { ArrowLeft, ArrowRight, Check, Flag, Radio, ShieldCheck, type LucideIcon } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { Badge, Button } from "../../components/ui";
@@ -13,7 +12,7 @@ const steps: { icon: LucideIcon; title: string; description: string; key: string
   { icon: ShieldCheck, title: "Ready to analyse", description: "You're all set. Open a session and upload your first radio clip.", key: "complete" },
 ];
 
-type Role = "race_engineer" | "performance_engineer" | "team_principal" | "driver_coach" | "other";
+type Role = "race_engineer" | "performance_engineer" | "team_principal" | "driver_coach" | "others";
 type Context = { series?: string; car_class?: string; session_format?: string };
 
 export default function OnboardingPage() {
@@ -77,26 +76,19 @@ export default function OnboardingPage() {
 
         {step === 0 && (
           <form onSubmit={(e) => { e.preventDefault(); nextStep(); }} className="mt-6 space-y-4">
-            <fieldset className="space-y-3">
-              <legend className="text-xs text-slate-400 mb-2">Primary role</legend>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {[
-                  { value: "race_engineer", label: "Race engineer", desc: "Real-time strategy & radio" },
-                  { value: "performance_engineer", label: "Performance engineer", desc: "Lap-time analysis & setup" },
-                  { value: "team_principal", label: "Team principal", desc: "Overview & decision authority" },
-                  { value: "driver_coach", label: "Driver coach", desc: "Driver development & feedback" },
-                  { value: "other", label: "Other", desc: "Analyst, media, researcher..." },
-                ].map(({ value, label, desc }) => (
-                  <button type="button" key={value} onClick={() => { setRole(value as Role); setError(""); }} className={`relative rounded-lg border p-4 text-left transition ${role === value ? "border-cyan bg-cyan/10" : "border-line hover:border-cyan"}`}>
-                    <div className="font-semibold">{label}</div>
-                    <div className="mt-1 text-xs text-slate-400">{desc}</div>
-                    {role === value && <div className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full border border-cyan bg-cyan text-black text-[10px]"><Check size={10} /></div>}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
+            <label className="block text-xs text-slate-400">Primary role
+              <select required value={role} onChange={(event) => { setRole(event.target.value as Role | ""); setError(""); }} className="field mt-2">
+                <option value="" disabled>Select how you use PitSense</option>
+                <option value="race_engineer">Race engineer</option>
+                <option value="performance_engineer">Performance engineer</option>
+                <option value="team_principal">Team principal</option>
+                <option value="driver_coach">Driver coach</option>
+                <option value="others">Others</option>
+              </select>
+              <span className="mt-2 block text-[11px] leading-5 text-slate-500">Choose Others for testing, evaluation, research, media, or any role not listed.</span>
+            </label>
             <div className="flex justify-between pt-4 border-t border-white/[0.07]">
-              <Link href="/sessions" className="btn-ghost"><ArrowLeft size={15} className="mr-1" />Back to sessions</Link>
+              <span />
               <Button disabled={busy || !role}>{busy ? "Continuing..." : <>Continue <ArrowRight size={15} /></>}</Button>
             </div>
           </form>
@@ -124,7 +116,6 @@ export default function OnboardingPage() {
             </div>
             <div className="flex flex-wrap gap-3 justify-center">
               <Button onClick={complete} disabled={busy} className="w-full sm:w-auto">{busy ? "Finishing..." : "Start using PitSense"}</Button>
-              <Link href="/sessions" className="btn-ghost">Skip for now</Link>
             </div>
           </div>
         )}

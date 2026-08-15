@@ -2,8 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, Building2, Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
+import { Building2, Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
 import { api, ApiError, setToken } from "../../lib/api";
 import { Button, ErrorBox } from "../../components/ui";
 
@@ -71,7 +70,6 @@ export default function LoginPage() {
         <button type="button" onClick={() => { setRegister(!register); setError(""); setShowPassword(false); }} className="mt-5 w-full text-sm font-medium text-cyan transition hover:text-white">
           {register ? "Already have an account? Sign in" : "New to PitSense? Create a team"}
         </button>
-        <Link href="/" className="mt-5 flex items-center justify-center gap-2 text-xs text-slate-500 transition hover:text-slate-300"><ArrowLeft size={13} />Back to home</Link>
       </section>
     </main>
   );

@@ -177,7 +177,7 @@ export default function Home() {
       <section className="border-t border-white/[0.07]">
         <div className="mx-auto max-w-7xl px-6 py-16 text-center">
           <div className="section-badge">Ready to start</div>
-          <h2 className="mt-5 text-3xl font-bold">Open the demo session in seconds. No account required.</h2>
+          <h2 className="mt-5 text-3xl font-bold">Open the demo session from your secure team account.</h2>
           <p className="mt-3 max-w-xl mx-auto text-sm leading-6 text-slate-400">The seeded demo contains real transcript, vocal-state markers, lap correlation, and a complete engineer report — all explicitly labelled as fixture data.</p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link href="/sessions?demo=1" className="btn-glow text-base">
