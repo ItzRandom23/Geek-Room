@@ -18,6 +18,7 @@ TEST_UPLOADS = TEST_ROOT / "test-uploads"
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB.as_posix()}"
 os.environ["UPLOAD_DIR"] = str(TEST_UPLOADS)
 os.environ["AUTO_MIGRATE"] = "true"
+os.environ["AUTH_REQUIRED"] = "false"
 
 
 def _remove_test_artifacts() -> None:

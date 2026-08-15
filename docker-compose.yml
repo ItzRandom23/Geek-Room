@@ -30,6 +30,7 @@ services:
       DATABASE_URL: postgresql+psycopg://pitsense:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-pitsense}
       REDIS_URL: redis://redis:6379/0
       UPLOAD_DIR: /app/data/uploads
+      AUTH_REQUIRED: "true"
     volumes: [pitsense-data:/app/data]
     depends_on:
       postgres: {condition: service_healthy}
@@ -48,6 +49,7 @@ services:
       DATABASE_URL: postgresql+psycopg://pitsense:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-pitsense}
       REDIS_URL: redis://redis:6379/0
       UPLOAD_DIR: /app/data/uploads
+      AUTH_REQUIRED: "true"
     volumes: [pitsense-data:/app/data]
     depends_on:
       postgres: {condition: service_healthy}
