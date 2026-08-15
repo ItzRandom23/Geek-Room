@@ -3,9 +3,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Plus, RadioTower, Trash2, Clock, TrendingUp, AlertTriangle, Activity, Flag } from "lucide-react";
+import { ChevronRight, Plus, RadioTower, Clock, TrendingUp, AlertTriangle, Activity, Flag } from "lucide-react";
 import { api, ApiError, Session } from "../../lib/api";
-import { Badge, Button, ErrorBox, StatusIcon } from "../../components/ui";
+import { Badge, Button, ErrorBox } from "../../components/ui";
 
 function MetricCard({ label, value, detail, icon: Icon, tone, trend }: { label: string; value: string; detail: string; icon: React.ComponentType<{ size?: number; className?: string }>; tone: "cyan" | "green" | "amber" | "signal"; trend?: string }) {
   const toneClass = { cyan: "border-cyan/30 bg-cyan/5", green: "border-emerald-400/30 bg-emerald-400/5", amber: "border-amber-400/30 bg-amber-400/5", signal: "border-signal/30 bg-signal/5" }[tone];
@@ -106,8 +106,6 @@ export default function SessionsPage() {
     } catch (e) { setError((e as Error).message); }
   }
 
-  if (!onboardingChecked) return <main className="mx-auto max-w-7xl px-6 py-20 text-slate-400">Loading…</main>;
-
   const analysedSessions = useMemo(() => sessions.filter(s => s.status === "analysed"), [sessions]);
   const totalSessions = sessions.length;
   const totalAnalysed = analysedSessions.length;
@@ -115,6 +113,8 @@ export default function SessionsPage() {
   const totalAudioMinutes = useMemo(() => Math.round(sessions.reduce((sum, s) => sum + (s.audio?.reduce((a, c) => a + (c.duration_seconds || 0), 0) || 0), 0) / 60), [sessions]);
   const totalEvents = useMemo(() => analysedSessions.reduce((sum, s) => sum + (s.report?.summary?.event_count || 0), 0), [analysedSessions]);
   const recentSessions = useMemo(() => [...sessions].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5), [sessions]);
+
+  if (!onboardingChecked) return <main className="mx-auto max-w-7xl px-6 py-20 text-slate-400">Loading…</main>;
 
   return (
     <main className="mx-auto min-h-[calc(100vh-150px)] max-w-7xl px-6 py-12">

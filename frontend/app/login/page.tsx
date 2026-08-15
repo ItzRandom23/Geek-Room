@@ -22,7 +22,7 @@ export default function LoginPage() {
     setError("");
     try {
       const result = register ? await api.register(form) : await api.login({ email: form.email, password: form.password });
-      setToken(result.access_token);
+      setToken(result.access_token, rememberMe);
       if (result.user.onboarding_completed) router.push("/sessions");
       else router.push("/onboarding");
     } catch (error) {

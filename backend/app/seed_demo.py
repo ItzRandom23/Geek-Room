@@ -8,6 +8,8 @@ from .config import get_settings
 from .database import SessionLocal, run_migrations
 from .models import AudioClip, EmotionResult, Insight, Lap, Session, TranscriptSegment
 from .services.analysis import Event, build_report
+from .services.audio import resolve_audio
+from .storage import get_storage
 
 
 def make_wav(path: Path, duration: float = 42.0, sample_rate: int = 16000):
@@ -32,20 +34,25 @@ def seed():
     db = SessionLocal()
     existing = db.scalar(select(Session).where(Session.is_demo.is_(True)))
     if existing:
+        existing_id = existing.id
         if existing.audio_clips and existing.active_clip_id is None:
             existing.active_clip_id = existing.audio_clips[-1].id
             existing.analysis_mode = "lap_correlated"
             existing.analysis_version = settings.analysis_version
-            db.commit()
+        active = next((clip for clip in existing.audio_clips if clip.id == existing.active_clip_id), None)
+        if active:
+            active.detected_language = active.detected_language or "en"
+            active.processing_status = "analysed"
+        db.commit()
         db.close()
-        print(f"Demo session already exists: {existing.id}")
-        return existing.id
+        print(f"Demo session already exists: {existing_id}")
+        return existing_id
     audio_path = Path(settings.upload_dir).resolve() / "demo_radio.wav"
     make_wav(audio_path)
     session = Session(name="Demo • Silent Co-Driver", driver_name="A. Rao", circuit_name="Northstar GP", status="analysed", is_demo=True)
     db.add(session)
     db.flush()
-    clip = AudioClip(session_id=session.id, original_filename="demo_radio.wav", stored_filename=audio_path.name, duration_seconds=42.0)
+    clip = AudioClip(session_id=session.id, original_filename="demo_radio.wav", stored_filename=audio_path.name, duration_seconds=42.0, detected_language="en", processing_status="analysed")
     db.add(clip)
     db.flush()
     session.active_clip_id = clip.id
@@ -77,7 +84,7 @@ def seed():
         db.add(Lap(session_id=session.id, lap_number=number, lap_time_seconds=lap_time, start_timestamp_seconds=demo_timestamps[number - 1], end_timestamp_seconds=demo_timestamps[number]))
     db.flush()
     laps = list(db.scalars(select(Lap).where(Lap.session_id == session.id)).all())
-    report = build_report(events, laps, " ".join(row[2] for row in transcript_rows))
+    report = build_report(events, laps, " ".join(row[2] for row in transcript_rows), language="en", text_signals_applied=True)
     for item in report["recommendations"]:
         db.add(Insight(session_id=session.id, type=item["type"], severity=item["severity"], title=item["title"], explanation=item["explanation"], recommendation=item["recommendation"], supporting_data_json=json.dumps(item.get("supporting_data", {}))))
     demo_id = session.id
@@ -87,5 +94,29 @@ def seed():
     return demo_id
 
 
+def reset_demo():
+    """Delete only the explicit demo fixture, then recreate it."""
+    settings = get_settings()
+    run_migrations()
+    db = SessionLocal()
+    existing = db.scalar(select(Session).where(Session.is_demo.is_(True)))
+    filenames = [clip.stored_filename for clip in existing.audio_clips] if existing else []
+    if existing:
+        db.delete(existing)
+        db.commit()
+    db.close()
+    storage = get_storage()
+    for filename in filenames:
+        if settings.storage_backend.lower() == "s3":
+            storage.delete(filename)
+        else:
+            try:
+                resolve_audio(settings.upload_dir, filename).unlink(missing_ok=True)
+            except FileNotFoundError:
+                pass
+    return seed()
+
+
 if __name__ == "__main__":
-    seed()
+    import sys
+    (reset_demo if "--reset" in sys.argv[1:] else seed)()

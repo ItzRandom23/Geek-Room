@@ -97,7 +97,7 @@ export default function OnboardingPage() {
             </fieldset>
             <div className="flex justify-between pt-4 border-t border-white/[0.07]">
               <Link href="/sessions" className="btn-ghost"><ArrowLeft size={15} className="mr-1" />Back to sessions</Link>
-              <Button disabled={busy || !role}>{busy ? "Continuing..." : "Continue <ArrowRight size={15} />"}</Button>
+              <Button disabled={busy || !role}>{busy ? "Continuing..." : <>Continue <ArrowRight size={15} /></>}</Button>
             </div>
           </form>
         )}
@@ -110,7 +110,7 @@ export default function OnboardingPage() {
             <p className="text-xs text-slate-500">All fields are optional. You can update them anytime in Settings.</p>
             <div className="flex justify-between pt-4 border-t border-white/[0.07]">
               <Button type="button" variant="ghost" onClick={prevStep}><ArrowLeft size={15} className="mr-1" />Back</Button>
-              <Button disabled={busy}>{busy ? "Continuing..." : "Continue <ArrowRight size={15} />"}</Button>
+              <Button disabled={busy}>{busy ? "Continuing..." : <>Continue <ArrowRight size={15} /></>}</Button>
             </div>
           </form>
         )}

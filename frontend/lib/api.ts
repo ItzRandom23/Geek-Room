@@ -15,8 +15,8 @@ export type AnalysisJob = { job_id:string; session_id:number; mode:string; statu
 export type AuthResponse = { access_token:string; token_type:string; user:{id:number;email:string;full_name:string;onboarding_completed:boolean}; organization:{id:number;name:string;role:string} };
 
 export class ApiError extends Error { code:string; retryable:boolean; status:number; requestId?:string; constructor(message:string, code="REQUEST_FAILED", retryable=false, status=0, requestId?:string){super(message);this.name="ApiError";this.code=code;this.retryable=retryable;this.status=status;this.requestId=requestId;} }
-export function getToken(){return typeof window === "undefined" ? null : window.localStorage.getItem("pitsense_token");}
-export function setToken(token:string|null){if(typeof window === "undefined")return;if(token)window.localStorage.setItem("pitsense_token",token);else window.localStorage.removeItem("pitsense_token");}
+export function getToken(){return typeof window === "undefined" ? null : window.localStorage.getItem("pitsense_token") || window.sessionStorage.getItem("pitsense_token");}
+export function setToken(token:string|null, remember = true){if(typeof window === "undefined")return;window.localStorage.removeItem("pitsense_token");window.sessionStorage.removeItem("pitsense_token");if(token)(remember?window.localStorage:window.sessionStorage).setItem("pitsense_token",token);}
 
 async function request<T>(path:string, options:RequestInit = {}, timeoutMs=30000):Promise<T>{
   const headers = new Headers(options.headers); const token=getToken(); if(token)headers.set("Authorization",`Bearer ${token}`);
@@ -46,6 +46,8 @@ export const api = {
   login:(payload:{email:string;password:string})=>request<AuthResponse>("/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}),
   register:(payload:{email:string;password:string;full_name:string;organization_name:string})=>request<AuthResponse>("/auth/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}),
   me:()=>request<{authenticated:boolean;user?:{id:number;email:string;full_name:string;onboarding_completed:boolean};organizations?:{id:number;name:string;role:string}[]}>("/me"),
+  updateMe:(payload:{full_name:string;email:string})=>request<{id:number;email:string;full_name:string;onboarding_completed:boolean}>("/me",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}),
+  updatePassword:(payload:{current_password:string;new_password:string})=>request<{updated:boolean}>("/me/password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}),
   exportReport:(id:number,format:"json"|"csv"|"pdf")=>requestBlob(`/sessions/${id}/exports/report.${format}`),
 completeOnboarding:()=>request<{onboarding_completed:boolean}>("/onboarding/complete",{method:"POST"}),
 };

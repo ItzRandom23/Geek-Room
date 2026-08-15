@@ -4,7 +4,7 @@
 
 PitSense AI is an AI-powered race-engineer dashboard for the **"Silent Co-Driver" problem**: it turns driver radio into timestamped evidence, classifies vocal state, correlates stress events with lap performance, and produces deterministic, human-reviewable engineering recommendations.
 
-> **Judges**: Start at [Demo Instructions](#demo-instructions-for-judges) for the 2-minute evaluation flow. See [Judges Q&A](docs/JUDGES_QA.md) for anticipated technical questions.
+> **Judges**: Start at [Demo Instructions](#demo-instructions-for-judges) for the 2-minute evaluation flow. See the [Judges Q&A](docs/JUDGES_QA.md), [demo script](docs/DEMO_SCRIPT.md), and [QA matrix](docs/QA_MATRIX.md).
 
 ---
 
@@ -12,7 +12,7 @@ PitSense AI is an AI-powered race-engineer dashboard for the **"Silent Co-Driver
 
 ```mermaid
 flowchart LR
-  subgraph Frontend["Next.js 14 (React + TypeScript)"]
+  subgraph Frontend["Next.js 16 (React + TypeScript)"]
     UI["Dashboard / Workspace / Results"]
     API_CLIENT[API Client + Polling]
   end
@@ -73,7 +73,7 @@ flowchart LR
 | Layer | Capabilities |
 |-------|--------------|
 | **Backend (FastAPI)** | SQLAlchemy + Alembic migrations, JWT auth with org-scoped tokens, secure audio upload/replace/delete (MIME + magic-byte validation, ClamAV optional), CSV/manual lap import with timestamp validation, async Redis/RQ analysis queue with phase-level progress, cancellation, retry-with-backoff, timeout watchdog, model adapter system (baseline → promoted → calibrated candidate), deterministic correlation & recommendation engine, schema-versioned report storage, JSON/CSV/PDF exports. |
-| **Frontend (Next.js 14)** | Landing page with problem/impact/hero, dashboard with metric cards + recent activity, session workspace (upload, laps, mode select, live processing panel), results dashboard (transcript, events, lap chart, state distribution, recommendations, exports), analytics (filterable/sortable session table), onboarding (3 steps), settings (profile/preferences/security/danger), methodology docs, login/register with password visibility. |
+| **Frontend (Next.js 16)** | Landing page with problem/impact/hero, dashboard with metric cards + recent activity, session workspace (upload, laps, mode select, live processing panel), results dashboard (transcript, events, lap chart, state distribution, recommendations, exports), analytics (filterable/sortable session table), onboarding (3 steps), settings (profile/preferences/security/session), methodology docs, login/register with password visibility. |
 | **Demo Fixtures** | Seeded session (`python -m app.seed_demo`) with synthetic 42s WAV, hand-crafted transcript, 5 emotion windows (Calm×2, Stressed, Urgent, Tired), 8 real laps (laps 4–5 deteriorated), complete lap-correlated report. **Explicitly labelled** in UI (`is_demo=true`, "Explicit demo fixture" badge) and API. Normal uploads **never** use fixtures. |
 | **Tests** | Backend: API health/auth/upload validation/mutation locking, domain logic (correlation, recommendations), ML pipeline (label normalization, fusion). Frontend: validation utils, component state behavior. |
 
@@ -100,13 +100,13 @@ flowchart LR
 
 ### Quick Start (30 seconds)
 
+Use Python 3.11 for the pinned backend dependency set (`backend/.python-version`). The seeded demo is offline after dependencies are installed; normal analysis additionally needs the configured model weights.
+
 ```powershell
 # 1. Backend
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-copy .env.example .env
+powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1
+.\.venv311\Scripts\Activate.ps1
 python -m app.seed_demo
 uvicorn app.main:app --reload --port 8000
 
@@ -121,6 +121,8 @@ npm run dev
 
 > **Windows one-click**: Double-click `start-pitsense.bat` after first `pip install` / `npm install`.
 
+To reset only the labelled demo fixture and recreate it, run `python -m app.seed_demo --reset` from `backend`. This does not delete normal user sessions.
+
 ### 2-Minute Demo Flow
 
 | Step | Action | What You See |
@@ -128,9 +130,9 @@ npm run dev
 | 1 | Land on homepage | Hero + live telemetry shell (STRESSED 86%) |
 | 2 | Click **"Explore demo session"** | Redirects to `/sessions/{demo_id}` |
 | 3 | Session workspace | Audio player (play 42s synthetic WAV), lap table (8 laps, laps 4–5 +3.5s vs median), status: **Analysed** |
-| 4 | Results dashboard | **Primary state: Stressed 86%**, **Highest-risk: Urgent 91%**, lap chart with red dots on laps 4 & 5 |
-| 5 | Click red dot on lap 4 | Audio seeks to 22s, transcript highlights *"Box now, there is smoke..."*, **Critical recommendation**: investigate car condition |
-| 6 | Scroll to recommendations | 4 insights: Critical (safety), High (stress→deterioration), Medium (fatigue), Info (monitor) |
+| 4 | Results dashboard | **Overall state: Calm 91%**, **Highest-risk: Urgent 91%**, lap chart with evidence markers and supplied timing summary |
+| 5 | Click the urgent evidence card | Audio seeks to 22s, transcript highlights *"Box now, there is smoke..."*, **Critical recommendation**: investigate car condition |
+| 6 | Scroll to recommendations | 2 deterministic recommendations: stress-event deterioration and urgent-event performance loss |
 | 7 | Click **JSON** export | Downloads `pitsense-{id}-report.json` with full provenance |
 
 **All demo data is labelled**: "Explicit demo fixture" in header, `is_demo=true` in API, fixture badges in lists.
@@ -143,10 +145,8 @@ npm run dev
 
 ```powershell
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-copy .env.example .env
+powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1
+.\.venv311\Scripts\Activate.ps1
 # Edit .env: set HF_TOKEN if using gated models, or leave for open models
 python -m app.seed_demo
 uvicorn app.main:app --reload --port 8000
@@ -244,7 +244,11 @@ cd backend; pytest -v
 
 # Frontend
 cd frontend; npm test
+cd frontend; npm run lint
+cd frontend; npm run build
 ```
+
+The production build check is `cd frontend; npm run build`. The repository's judge-facing route and failure evidence are recorded in [`docs/QA_MATRIX.md`](docs/QA_MATRIX.md).
 
 **Backend coverage**: API contracts, auth flow, upload validation, mutation locking, domain logic (correlation, recommendations), ML pipeline (label normalization, fusion).
 
@@ -272,6 +276,12 @@ cd frontend; npm test
 | [`docs/model-training.md`](docs/model-training.md) | Speaker-held-out training & 99% gate |
 | [`docs/model-benchmark.md`](docs/model-benchmark.md) | GPU benchmark workflow & signed promotion |
 | [`docs/production-runbook.md`](docs/production-runbook.md) | Deployment, scaling, observability |
+| [`docs/JUDGES_QA.md`](docs/JUDGES_QA.md) | Evidence-based technical answers |
+| [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) | 2–3 minute live demo script |
+| [`docs/PRESENTATION_PLAN.md`](docs/PRESENTATION_PLAN.md) | Seven-minute presentation structure |
+| [`docs/DEMO_BACKUP.md`](docs/DEMO_BACKUP.md) | Recovery and fallback paths |
+| [`docs/QA_MATRIX.md`](docs/QA_MATRIX.md) | Runtime verification evidence |
+| [`docs/FINAL_AUDIT.md`](docs/FINAL_AUDIT.md) | Final implementation and limitations audit |
 
 ---
 

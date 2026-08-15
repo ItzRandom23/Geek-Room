@@ -7,7 +7,7 @@ import { ArrowLeft, Bell, Eye, EyeOff, LockKeyhole, Mail, Shield, UserRound, Log
 import { api, ApiError, setToken } from "../../lib/api";
 import { Badge, Button, ErrorBox } from "../../components/ui";
 
-type Tab = "profile" | "preferences" | "security" | "danger";
+type Tab = "profile" | "preferences" | "security" | "session";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -39,15 +39,27 @@ export default function SettingsPage() {
     }
   };
 
-  useEffect(() => { load(); }, [router]);
+  useEffect(() => {
+    const stored = window.localStorage.getItem("pitsense_preferences");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as Partial<typeof prefs>;
+        setPrefs(current => ({ ...current, ...parsed }));
+      } catch {
+        window.localStorage.removeItem("pitsense_preferences");
+      }
+    }
+    void load();
+  }, [router]);
 
   async function updateProfile(e: FormEvent) {
     e.preventDefault();
     setBusy(true); setError(""); setSuccess("");
     try {
-      // No dedicated API yet, just update local state for demo
-      setUser(u => u ? { ...u, full_name: form.full_name, email: form.email } : null);
-      setSuccess("Profile updated (local only — backend API not yet implemented)");
+      const updated = await api.updateMe({ full_name: form.full_name, email: form.email });
+      setUser(u => u ? { ...u, ...updated } : null);
+      setForm(current => ({ ...current, full_name: updated.full_name, email: updated.email }));
+      setSuccess("Profile changes saved.");
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -58,8 +70,8 @@ export default function SettingsPage() {
     if (form.new_password !== form.confirm_password) { setError("New passwords do not match."); setBusy(false); return; }
     if (form.new_password.length < 8) { setError("Password must be at least 8 characters."); setBusy(false); return; }
     try {
-      // No dedicated API yet
-      setSuccess("Password updated (local only — backend API not yet implemented)");
+      await api.updatePassword({ current_password: form.current_password, new_password: form.new_password });
+      setSuccess("Password updated. Use the new password on your next sign-in.");
       setForm({ ...form, current_password: "", new_password: "", confirm_password: "" });
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -69,8 +81,8 @@ export default function SettingsPage() {
     e.preventDefault();
     setBusy(true); setError(""); setSuccess("");
     try {
-      // Local only
-      setSuccess("Preferences saved (local only)");
+      window.localStorage.setItem("pitsense_preferences", JSON.stringify(prefs));
+      setSuccess("Preferences saved on this browser.");
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -103,7 +115,7 @@ export default function SettingsPage() {
               { id: "profile", label: "Profile", icon: UserRound },
               { id: "preferences", label: "Preferences", icon: Bell },
               { id: "security", label: "Security", icon: LockKeyhole },
-              { id: "danger", label: "Danger zone", icon: Shield },
+              { id: "session", label: "Session", icon: LogOut },
             ].map(({ id, label, icon: Icon }) => (
               <button key={id} onClick={() => setTab(id as Tab)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition ${tab === id ? "bg-cyan/10 border border-cyan/30 text-cyan" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}>
                 <Icon size={16} />
@@ -155,19 +167,13 @@ export default function SettingsPage() {
             </form>
           )}
 
-          {tab === "danger" && (
+          {tab === "session" && (
             <div>
-              <h2 id="settings-content" className="text-xl font-bold">Danger zone</h2>
-              <p className="mt-1 text-sm text-slate-400">Irreversible actions. Use with caution.</p>
+              <h2 id="settings-content" className="text-xl font-bold">Session</h2>
+              <p className="mt-1 text-sm text-slate-400">End the current browser session when you leave the workstation.</p>
               <div className="mt-6 pt-6 border-t border-line">
-                <div className="flex items-center justify-between gap-4 p-4 rounded-lg border border-signal/30 bg-signal/5">
-                  <div><p className="font-semibold text-signal">Delete all data</p><p className="mt-1 text-sm text-slate-400">Permanently remove all your sessions, audio, and reports. This cannot be undone.</p></div>
-                  <Button className="border-signal/50 bg-signal/10 text-signal hover:bg-signal/20" onClick={() => { if (confirm("This will delete ALL your data. Type DELETE to confirm.")) alert("Backend API not yet implemented"); }}>Delete account</Button>
-                </div>
-              </div>
-              <div className="mt-4 pt-4 border-t border-line">
                 <div className="flex items-center justify-between gap-4 p-4 rounded-lg border border-line">
-                  <div><p className="font-semibold">Sign out everywhere</p><p className="mt-1 text-sm text-slate-400">Revoke all active sessions and require re-login.</p></div>
+                  <div><p className="font-semibold">Sign out this browser</p><p className="mt-1 text-sm text-slate-400">Remove the local access token and return to team access.</p></div>
                   <Button onClick={logout}>Sign out</Button>
                 </div>
               </div>
