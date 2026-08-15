@@ -4,8 +4,6 @@
 
 PitSense AI is an AI-powered race-engineer dashboard for the **"Silent Co-Driver" problem**: it turns driver radio into timestamped evidence, classifies vocal state, correlates stress events with lap performance, and produces deterministic, human-reviewable engineering recommendations.
 
-> **Judges**: Start at [Demo Instructions](#demo-instructions-for-judges) for the 2-minute evaluation flow. See the [Judges Q&A](docs/JUDGES_QA.md), [demo script](docs/DEMO_SCRIPT.md), and [QA matrix](docs/QA_MATRIX.md).
-
 ---
 
 ## Architecture
@@ -248,7 +246,7 @@ cd frontend; npm run lint
 cd frontend; npm run build
 ```
 
-The production build check is `cd frontend; npm run build`. The repository's judge-facing route and failure evidence are recorded in [`docs/QA_MATRIX.md`](docs/QA_MATRIX.md).
+The production build check is `cd frontend; npm run build`.
 
 **Backend coverage**: API contracts, auth flow, upload validation, mutation locking, domain logic (correlation, recommendations), ML pipeline (label normalization, fusion).
 
@@ -276,12 +274,6 @@ The production build check is `cd frontend; npm run build`. The repository's jud
 | [`docs/model-training.md`](docs/model-training.md) | Speaker-held-out training & 99% gate |
 | [`docs/model-benchmark.md`](docs/model-benchmark.md) | GPU benchmark workflow & signed promotion |
 | [`docs/production-runbook.md`](docs/production-runbook.md) | Deployment, scaling, observability |
-| [`docs/JUDGES_QA.md`](docs/JUDGES_QA.md) | Evidence-based technical answers |
-| [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) | 2–3 minute live demo script |
-| [`docs/PRESENTATION_PLAN.md`](docs/PRESENTATION_PLAN.md) | Seven-minute presentation structure |
-| [`docs/DEMO_BACKUP.md`](docs/DEMO_BACKUP.md) | Recovery and fallback paths |
-| [`docs/QA_MATRIX.md`](docs/QA_MATRIX.md) | Runtime verification evidence |
-| [`docs/FINAL_AUDIT.md`](docs/FINAL_AUDIT.md) | Final implementation and limitations audit |
 
 ---
 
