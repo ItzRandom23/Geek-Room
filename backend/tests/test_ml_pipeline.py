@@ -82,7 +82,7 @@ def test_whisper_forces_configured_english_when_detection_says_spanish(monkeypat
             return {"text": "  hello driver  ", "language": "<|es|>", "chunks": [{"text": "hello driver", "timestamp": (0.2, 1.3)}]}
 
     monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(1600, dtype=np.float32), 16000))
-    provider = HuggingFaceSpeechToText(Settings())
+    provider = HuggingFaceSpeechToText(Settings(stt_language="en"))
     provider._pipeline = FakePipeline()
     result = provider.transcribe(tmp_path / "radio.wav")
     assert captured["return_language"] is True

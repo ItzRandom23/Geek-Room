@@ -50,7 +50,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       UPLOAD_DIR: /app/data/uploads
       AUTH_REQUIRED: "true"
-    volumes: [pitsense-data:/app/data]
+    volumes:
+      - pitsense-data:/app/data
+      - pitsense-model-cache:/home/appuser/.cache/huggingface
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -67,3 +69,4 @@ volumes:
   pitsense-postgres:
   pitsense-redis:
   pitsense-data:
+  pitsense-model-cache:

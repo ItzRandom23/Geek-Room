@@ -84,6 +84,8 @@ def test_non_english_transcript_is_preserved_and_audio_only_csv_is_not_empty(mon
         time.sleep(0.05)
     assert job["status"] == "completed"
     assert job["report"]["summary"]["language"] == "hi"
+    assert job["report"]["primary_state"] == "uncertain"
+    assert job["report"]["data_quality"]["language_supported"] is False
     assert job["report"]["timestamped_transcript"][0]["text"] == "ब्रेक ठीक नहीं है"
     assert job["report"]["data_quality"]["text_signals_applied"] is False
     exported = client.get(f"/api/sessions/{session_id}/exports/report.csv")
