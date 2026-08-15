@@ -45,7 +45,7 @@ export const api = {
   modelBenchmark:()=>request<{available:boolean;reason?:string;candidates?:unknown[]}>("/models/benchmark"),
   login:(payload:{email:string;password:string})=>request<AuthResponse>("/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}),
   register:(payload:{email:string;password:string;full_name:string;organization_name:string})=>request<AuthResponse>("/auth/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}),
-  me:()=>request<{authenticated:boolean;user?:{id:number;email:string;full_name:string;onboarding_completed:boolean}}>("/me"),
+  me:()=>request<{authenticated:boolean;user?:{id:number;email:string;full_name:string;onboarding_completed:boolean};organizations?:{id:number;name:string;role:string}[]}>("/me"),
   exportReport:(id:number,format:"json"|"csv"|"pdf")=>requestBlob(`/sessions/${id}/exports/report.${format}`),
 completeOnboarding:()=>request<{onboarding_completed:boolean}>("/onboarding/complete",{method:"POST"}),
 };

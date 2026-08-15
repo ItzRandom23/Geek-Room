@@ -13,15 +13,15 @@ PitSense AI is an AI-powered race-engineer dashboard for the **"Silent Co-Driver
 ```mermaid
 flowchart LR
   subgraph Frontend["Next.js 14 (React + TypeScript)"]
-    UI[Dashboard / Workspace / Results]
+    UI["Dashboard / Workspace / Results"]
     API_CLIENT[API Client + Polling]
   end
 
   subgraph Backend["FastAPI (Python 3.11)"]
     AUTH[Auth + Org Isolation]
-    SESSIONS[Sessions / Audio / Laps]
-    JOBS[Analysis Queue (Redis/RQ)]
-    EXPORTS[JSON / CSV / PDF Reports]
+    SESSIONS["Sessions / Audio / Laps"]
+    JOBS["Analysis Queue (Redis/RQ)"]
+    EXPORTS["JSON / CSV / PDF Reports"]
   end
 
   subgraph Worker["Async Analysis Worker"]
@@ -35,8 +35,8 @@ flowchart LR
 
   subgraph Data["Persistence"]
     PG[(PostgreSQL + SQLAlchemy 2.0)]
-    S3[(S3-compatible Audio Storage)]
-    REDIS[(Redis / RQ Queue)]
+    S3[("S3-compatible Audio Storage")]
+    REDIS[("Redis / RQ Queue")]
   end
 
   UI -->|REST + multipart| AUTH

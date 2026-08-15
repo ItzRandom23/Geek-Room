@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Clock, TrendingUp, AlertTriangle, Activity, Flag, Download, Filter, Search, Calendar, BarChart3 } from "lucide-react";
+import { ChevronRight, TrendingUp, AlertTriangle, Activity, Flag, Search, BarChart3, Plus } from "lucide-react";
 import Link from "next/link";
 import { api, ApiError, Session } from "../../lib/api";
 import { Badge, Button, ErrorBox } from "../../components/ui";
@@ -82,11 +82,14 @@ export default function AnalyticsPage() {
       return true;
     });
     result.sort((a, b) => {
-      let va: unknown = a[sortField];
-      let vb: unknown = b[sortField];
+      let va: unknown;
+      let vb: unknown;
       if (sortField === "event_count") {
         va = a.report?.summary?.event_count || 0;
         vb = b.report?.summary?.event_count || 0;
+      } else {
+        va = a[sortField];
+        vb = b[sortField];
       }
       if (va instanceof Date) va = va.getTime();
       if (vb instanceof Date) vb = vb.getTime();
@@ -170,7 +173,7 @@ export default function AnalyticsPage() {
         {filtered.length > 0 && (
           <div className="mt-4 flex items-center justify-between text-sm text-slate-400">
             <span>Showing {filtered.length} of {sessions.length} sessions</span>
-            <Button onClick={() => api.exportReport ? null : null} disabled>Export filtered (CSV)</Button>
+            <Button disabled>Export filtered (CSV)</Button>
           </div>
         )}
       </section>

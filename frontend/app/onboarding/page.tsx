@@ -21,7 +21,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [role, setRole] = useState<Role | ""="">("");
+  const [role, setRole] = useState<Role | "">("");
   const [context, setContext] = useState<Context>({ series: "", car_class: "", session_format: "" });
 
   async function complete() {
@@ -87,7 +87,7 @@ export default function OnboardingPage() {
                   { value: "driver_coach", label: "Driver coach", desc: "Driver development & feedback" },
                   { value: "other", label: "Other", desc: "Analyst, media, researcher..." },
                 ].map(({ value, label, desc }) => (
-                  <button type="button" key={value} onClick={() => { setRole(value); setError(""); }} className={`relative rounded-lg border p-4 text-left transition ${role === value ? "border-cyan bg-cyan/10" : "border-line hover:border-cyan"}`}>
+                  <button type="button" key={value} onClick={() => { setRole(value as Role); setError(""); }} className={`relative rounded-lg border p-4 text-left transition ${role === value ? "border-cyan bg-cyan/10" : "border-line hover:border-cyan"}`}>
                     <div className="font-semibold">{label}</div>
                     <div className="mt-1 text-xs text-slate-400">{desc}</div>
                     {role === value && <div className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full border border-cyan bg-cyan text-black text-[10px]"><Check size={10} /></div>}
