@@ -25,9 +25,9 @@ flowchart LR
   end
 
   subgraph Worker["Async Analysis Worker"]
-    STT[Whisper Small STT\n(forced source language)]
-    SER[wav2vec2 SER\n(sliding windows)]
-    TEXT_EMO[DistilRoBERTa Text Emotion\n(EN only)]
+    STT["Whisper Small STT<br/>(forced source language)"]
+    SER["wav2vec2 SER<br/>(sliding windows)"]
+    TEXT_EMO["DistilRoBERTa Text Emotion<br/>(EN only)"]
     FUSE[Fusion + Urgency Gating]
     CORRELATE[Max-Overlap Lap Correlation]
     RULES[Deterministic Recommendations]
