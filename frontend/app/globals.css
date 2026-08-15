@@ -71,6 +71,7 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
   transition: color .2s ease, background-color .2s ease, border-color .2s ease;
 }
 .site-nav-link:hover { border-color: rgba(255,255,255,.08); background: rgba(255,255,255,.045); color: white; }
+.panel.settings-sidebar { position: sticky; top: 6rem; align-self: start; }
 
 .panel, .glass-card {
   position: relative;
@@ -260,10 +261,12 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
 
 @media (max-width: 700px) {
   .nav-label { display: none; }
+  .public-nav-secondary { display: none; }
   .site-nav-link { min-width: 38px; justify-content: center; padding-inline: 9px; }
   .telemetry-shell { animation-delay: .1s; }
   .analysis-phases::before { display: none; }
 }
+@media (max-width: 1023px) { .panel.settings-sidebar { position: static; } }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   #halftone-canvas { display: none; }

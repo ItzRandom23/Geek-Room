@@ -15,7 +15,7 @@ Set `ENVIRONMENT=production`, `AUTH_REQUIRED=true`, a rotated `JWT_SECRET`, a Po
 1. Apply the image in staging and run `alembic upgrade head` through the API startup migration.
 2. Check `/api/health` and `/api/readiness`.
 3. Register two test teams and verify neither can open the other team’s session.
-4. Upload WAV, MP3, M4A, and OGG samples; confirm duration and secure playback.
+4. Upload WAV, MP3/MPEG (`.mp3`, `.mpeg`, or `.mpga`), M4A, and OGG samples; confirm duration and secure playback.
 5. Run audio-only analysis, then a second run with real lap CSV data.
 6. Verify job retry/cancel behavior and JSON/CSV/PDF exports.
 7. Take a PostgreSQL backup and perform a restore test before production promotion.
