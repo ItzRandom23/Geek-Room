@@ -162,7 +162,7 @@ npm run dev
 Open `http://localhost:3000`. API docs at `http://localhost:8000/docs`.
 
 ### Docker (PostgreSQL + Redis + Worker)
-
+python -m uv venv --python 3.11 .venv311
 ```powershell
 copy .env.example .env
 # Edit .env: set POSTGRES_PASSWORD, JWT_SECRET, HF_TOKEN

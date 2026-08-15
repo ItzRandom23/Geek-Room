@@ -74,14 +74,6 @@ def _is_english(language: str | None) -> bool:
     return (language or "und").lower().split("-", 1)[0] == "en"
 
 
-def _analyzer_supports_language(model_status: dict, language: str | None) -> bool:
-    scope = ((model_status.get("analyzer_provenance") or {}).get("language_scope") or [])
-    if not scope:
-        return True
-    normalized = (language or "und").lower().split("-", 1)[0]
-    return "multilingual" in scope or normalized in scope
-
-
 def _related_segment(segments: list[TranscriptSegment], start: float, end: float) -> TranscriptSegment | None:
     candidates = [
         (interval_overlap(start, end, item.start_seconds, item.end_seconds), item)
@@ -148,8 +140,6 @@ def _run_inference_from_path(db, session, clip, path, job: AnalysisJob | None = 
 
     language = normalize_language(transcription.language)
     text_signals_applied = _is_english(language)
-    model_status = emotion_model_status(settings)
-    language_supported = _analyzer_supports_language(model_status, language)
     text_scores = {}
     if job is not None:
         _set_phase(db, job, session, "classifying", ANALYSIS_PHASE_PROGRESS["classifying"])
@@ -163,10 +153,6 @@ def _run_inference_from_path(db, session, clip, path, job: AnalysisJob | None = 
         _set_phase(db, job, session, "calibrating", ANALYSIS_PHASE_PROGRESS["calibrating"])
     for window in emotion_windows:
         related = _related_segment(segments, window.start, window.end)
-        # A vocal-state prediction without overlapping detected speech is most
-        # likely engine noise, silence, or radio static rather than driver tone.
-        if related is None:
-            continue
         excerpt = overlapping_text(segments, window.start, window.end)
         urgency = urgency_score(excerpt) if text_signals_applied else 0.0
         if hasattr(providers.audio_emotion, "fuse"):
@@ -177,12 +163,6 @@ def _run_inference_from_path(db, session, clip, path, job: AnalysisJob | None = 
             confidence = window.confidence
             fused_scores = window.scores
             source = "audio-baseline"
-        if not language_supported:
-            # Do not turn an English-only model's output into a confident state
-            # for speech in a language it was never qualified to evaluate.
-            label = "uncertain"
-            confidence = 0.0
-            source += "+language-gate"
         raw = dict(window.raw)
         raw.update({
             "fused_scores": fused_scores,
@@ -190,7 +170,6 @@ def _run_inference_from_path(db, session, clip, path, job: AnalysisJob | None = 
             "urgency": urgency,
             "transcription_language": language,
             "text_signals_applied": text_signals_applied,
-            "language_supported": language_supported,
         })
         db.add(EmotionResult(
             clip_id=clip.id,
@@ -237,10 +216,6 @@ def _report(session: Session, mode: str, processing_time_ms: int | None = None) 
         text_signals_applied=_is_english(language),
     )
     model_status = emotion_model_status(settings)
-    report["data_quality"].update({
-        "language_supported": _analyzer_supports_language(model_status, language),
-        "analyzer_validated": bool(model_status.get("promoted")),
-    })
     report.update({
         "analysis_mode": mode,
         "correlation_available": bool(mode == "lap_correlated" and laps),

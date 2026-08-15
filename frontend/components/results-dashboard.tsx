@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, BarChart3, CheckCircle2, Clipboard, FileDown, Gauge, Languages, MessageSquareText, Search, TimerReset, Waves } from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, Clipboard, FileDown, Languages, Search, Waves } from "lucide-react";
 import { CartesianGrid, ComposedChart, Line, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from "recharts";
 import { Report, ReportEvent, TimelineEvent, Transcript } from "../lib/api";
 import { Badge, Button } from "./ui";
@@ -47,18 +47,15 @@ export function ResultsDashboard({ report, timeline, chartData, selected, onSele
   const displayedEvents = useMemo(() => reportEvents.filter((event) => (filter === "all" || event.label === filter) && (!search || event.transcript.toLocaleLowerCase().includes(search.toLocaleLowerCase()))), [filter, reportEvents, search]);
   const distribution = report.state_distribution || labels.map((label) => ({ label, event_count: reportEvents.filter((event) => event.label === label).length, duration_seconds: 0, average_confidence: 0 }));
   const risk = report.summary?.highest_risk_event;
+  const dominant = report.summary?.dominant_state;
   const confidence = Math.round((report.confidence || 0) * 100);
+  const riskConfidence = Math.round((risk?.confidence || 0) * 100);
   const lapSummary = report.lap_summary;
   const analyzer = report.provenance?.audio_analyzer;
   const benchmarkMetrics = analyzer?.benchmark?.metrics;
   const baselineMetrics = analyzer?.benchmark?.baseline_metrics;
   const analyzerSupportsLanguage = !analyzer || analyzer.language_scope?.includes("multilingual") || analyzer.language_scope?.includes(language.split("-", 1)[0]);
   const languageCoverage = analyzer?.benchmark?.language_coverage?.[language.split("-", 1)[0]];
-  const analyzerValidated = report.data_quality?.analyzer_validated ?? (analyzer?.promotion_state === "signed_promoted");
-  const languageSupported = report.data_quality?.language_supported ?? analyzerSupportsLanguage;
-  const stateLabel = report.primary_state === "uncertain" ? "Needs review" : report.primary_state;
-  const transcriptPreview = transcript[0]?.text || report.transcript || "No speech was transcribed.";
-  const linkedEventCount = report.correlations.filter((item) => item.matched === true).length;
 
   const copyRecommendation = async () => {
     const recommendation = report.recommendations[0]?.recommendation;
@@ -78,51 +75,39 @@ export function ResultsDashboard({ report, timeline, chartData, selected, onSele
       {report.schema_version !== 2 && <Badge tone="amber">legacy evidence</Badge>}
     </div>
 
-    <div className="panel overflow-hidden p-5 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="eyebrow">Silent co-driver brief</div>
-          <h2 className="mt-3 max-w-3xl text-2xl font-bold">What was said, how it sounded, and what happened on track</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">A concise engineering view first. Open the evidence review below to listen, inspect timestamps, and verify every alert.</p>
+    <div className="grid gap-4 lg:grid-cols-[1.35fr_.65fr]">
+      <div className="panel overflow-hidden p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="eyebrow">Analysis complete</div>
+            <h2 className="mt-2 text-xl font-bold">Original-language radio evidence</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">The timestamped radio below is transcribed in the driver&apos;s source language. It is never translated for display.</p>
+          </div>
+          <div className="rounded-lg border border-cyan/30 bg-cyan/5 px-3 py-2 text-right">
+            <div className="flex items-center justify-end gap-2 text-xs uppercase tracking-wide text-cyan"><Languages size={14} />Language</div>
+            <div className="mt-1 font-mono text-lg font-bold text-white">{language}</div>
+          </div>
         </div>
-        <div className="rounded-lg border border-cyan/30 bg-cyan/5 px-3 py-2 text-right">
-          <div className="flex items-center justify-end gap-2 text-xs uppercase tracking-wide text-cyan"><Languages size={14} />source language</div>
-          <div className="mt-1 font-mono text-lg font-bold text-white">{language}</div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <Metric label="Overall state" value={report.primary_state} detail={`${confidence}% confidence`} tone="cyan" />
+          <Metric label="Highest-risk event" value={risk?.label || "none"} detail={risk ? `${riskConfidence}% confidence / ${formatTime(risk.duration_seconds)}` : "No reportable event"} tone="signal" />
+          <Metric label="Speech coverage" value={formatTime(report.data_quality?.speech_coverage_seconds)} detail={`${report.summary?.event_count || 0} reportable events`} tone="green" />
         </div>
+        {language === "und" && <div className="mt-4 rounded-lg border border-amber-400/35 bg-amber-400/5 p-3 text-sm text-amber-100">Source language was not available in this legacy evidence. Re-analyse the unchanged clip before relying on language-dependent signals.</div>}
+        {risk && <div className="mt-5 rounded-lg border border-signal/40 bg-signal/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><AlertTriangle size={17} className="text-signal" /><strong className="capitalize">{risk.label} evidence</strong><Badge tone={risk.severity === "critical" || risk.severity === "high" ? "red" : "amber"}>{risk.severity}</Badge></div><span className="font-mono text-xs text-slate-400">{formatTime(risk.start_seconds)} - {formatTime(risk.end_seconds)}</span></div>
+          <p className="mt-3 text-sm leading-6 text-slate-200" dir="auto">{risk.transcript || "No transcript excerpt overlaps this event."}</p>
+        </div>}
       </div>
 
-      <div className="mt-6 grid gap-3 lg:grid-cols-3">
-        <article className="rounded-xl border border-line bg-black/20 p-4">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-cyan"><MessageSquareText size={16} />Driver said</div>
-          <p className="mt-4 line-clamp-3 text-base leading-7 text-slate-100" dir="auto"><span aria-hidden="true">&ldquo;</span>{transcriptPreview}<span aria-hidden="true">&rdquo;</span></p>
-          <div className="mt-4 text-xs text-slate-500">{transcript.length} timestamped line{transcript.length === 1 ? "" : "s"}</div>
-        </article>
-        <article className={`rounded-xl border p-4 ${stateLabel === "Needs review" || !analyzerValidated ? "border-amber-400/30 bg-amber-400/5" : "border-cyan/30 bg-cyan/5"}`}>
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-cyan"><Gauge size={16} />Vocal state</div>
-          <div className="mt-4 text-3xl font-bold capitalize">{stateLabel}</div>
-          <div className="mt-2 text-sm text-slate-400">{confidence}% model confidence / {analyzerValidated ? "benchmark-qualified" : "screening estimate"}</div>
-        </article>
-        <article className={`rounded-xl border p-4 ${report.correlation_available ? "border-emerald-400/30 bg-emerald-400/5" : "border-line bg-black/20"}`}>
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-cyan"><TimerReset size={16} />Lap effect</div>
-          <div className="mt-4 text-xl font-bold">{report.correlation_available ? (linkedEventCount ? `${linkedEventCount} linked event${linkedEventCount === 1 ? "" : "s"}` : "No linked slowdown") : "No timing supplied"}</div>
-          <p className="mt-2 text-sm leading-6 text-slate-400">{report.correlation_available ? report.association_notice : "Audio-only mode makes no lap-performance claim."}</p>
-        </article>
+      <div className="panel p-5">
+        <div className="flex items-center justify-between"><div><div className="eyebrow">Data quality</div><h2 className="mt-1 text-lg font-bold">Analysis context</h2></div><Waves className="text-cyan" size={20} /></div>
+        <dl className="mt-5 space-y-3 text-sm"><QualityRow label="Audio duration" value={formatTime(report.data_quality?.audio_duration_seconds)} /><QualityRow label="Transcript lines" value={String(report.data_quality?.transcript_segment_count ?? transcript.length)} /><QualityRow label="Text signals" value={report.data_quality?.text_signals_applied ? "English only" : "Audio-led"} /><QualityRow label="Processing" value={report.provenance?.processing_time_ms ? `${(report.provenance.processing_time_ms / 1000).toFixed(1)}s` : "Not recorded"} /></dl>
+        <p className="mt-5 border-t border-line pt-4 text-xs leading-5 text-slate-500">Vocal-state classification supports race engineering review. It is not a medical or psychological diagnosis.</p>
       </div>
-
-      {(!analyzerValidated || !languageSupported) && <div role="alert" className="mt-5 rounded-lg border border-amber-400/35 bg-amber-400/5 p-4 text-sm leading-6 text-amber-100">
-        <strong>Prediction quality warning.</strong> {!languageSupported ? `The active analyzer is not qualified for ${language}, so unsupported predictions resolve to Needs review.` : "The fallback emotion model is not validated on race-radio audio. Treat its label as a screening estimate until a held-out candidate is promoted."}
-      </div>}
-      {language === "und" && <div className="mt-4 rounded-lg border border-amber-400/35 bg-amber-400/5 p-3 text-sm text-amber-100">Source language was not detected. Re-analyse before relying on language-dependent signals.</div>}
-      {risk && <div className="mt-5 rounded-lg border border-signal/40 bg-signal/5 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><AlertTriangle size={17} className="text-signal" /><strong className="capitalize">{risk.label} evidence</strong><Badge tone={risk.severity === "critical" || risk.severity === "high" ? "red" : "amber"}>{risk.severity}</Badge></div><span className="font-mono text-xs text-slate-400">{formatTime(risk.start_seconds)} - {formatTime(risk.end_seconds)}</span></div>
-        <p className="mt-3 text-sm leading-6 text-slate-200" dir="auto">{risk.transcript || "No transcript excerpt overlaps this event."}</p>
-      </div>}
     </div>
 
-    <details className="panel group overflow-hidden">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5"><div><div className="eyebrow">Optional technical detail</div><h2 className="mt-2 text-lg font-bold">Model quality, provenance, and state distribution</h2><p className="mt-1 text-xs text-slate-500">Useful for judges and model review; not required for the live engineering decision.</p></div><Waves className="text-cyan transition group-open:rotate-90" size={20} /></summary>
-      <div className="space-y-4 border-t border-line p-5">
-    {analyzer && <div className="rounded-lg border border-line bg-black/20 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="eyebrow">Analyzer provenance</div><h2 className="mt-1 text-lg font-bold">{analyzer.candidate_id}</h2><p className="mt-2 text-xs text-slate-400">{analyzer.promotion_state === "signed_promoted" ? "Activated only after signed, held-out benchmark gates passed." : "Baseline analyzer; no external candidate has been promoted."}</p></div><Badge tone={analyzer.promotion_state === "signed_promoted" ? "green" : "slate"}>{analyzer.promotion_state || "unknown"}</Badge></div><dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-5"><QualityRow label="Backbone" value={analyzer.backbone || "not recorded"} /><QualityRow label="Revision" value={analyzer.model_revision || "configured default"} /><QualityRow label="Calibration" value={analyzer.calibration_version || "not applicable"} /><QualityRow label="Pilot coverage" value={languageCoverage ? `${languageCoverage.clips} clips / ${languageCoverage.speakers} speakers` : "not benchmarked"} /><QualityRow label="Held-out macro F1" value={analyzer.benchmark?.metrics?.macro_f1 != null ? `${Math.round(analyzer.benchmark.metrics.macro_f1 * 100)}%` : "not measured"} /></dl></div>}
+    {analyzer && <div className="panel p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="eyebrow">Analyzer provenance</div><h2 className="mt-1 text-lg font-bold">{analyzer.candidate_id}</h2><p className="mt-2 text-xs text-slate-400">{analyzer.promotion_state === "signed_promoted" ? "Activated only after signed, held-out benchmark gates passed." : "Baseline analyzer; no external candidate has been promoted."}</p></div><Badge tone={analyzer.promotion_state === "signed_promoted" ? "green" : "slate"}>{analyzer.promotion_state || "unknown"}</Badge></div><dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-5"><QualityRow label="Backbone" value={analyzer.backbone || "not recorded"} /><QualityRow label="Revision" value={analyzer.model_revision || "configured default"} /><QualityRow label="Calibration" value={analyzer.calibration_version || "not applicable"} /><QualityRow label="Pilot coverage" value={languageCoverage ? `${languageCoverage.clips} clips / ${languageCoverage.speakers} speakers` : "not benchmarked"} /><QualityRow label="Held-out macro F1" value={analyzer.benchmark?.metrics?.macro_f1 != null ? `${Math.round(analyzer.benchmark.metrics.macro_f1 * 100)}%` : "not measured"} /></dl></div>}
 
     {analyzer && language !== "und" && !analyzerSupportsLanguage && <div role="alert" className="rounded-lg border border-amber-400/35 bg-amber-400/5 p-4 text-sm text-amber-100">This analyzer has not been benchmark-qualified for <strong>{language}</strong>. Treat its state labels as unverified until the language pilot reaches 100 adjudicated clips from 10 speakers.</div>}
 
@@ -130,17 +115,10 @@ export function ResultsDashboard({ report, timeline, chartData, selected, onSele
 
     {report.provenance?.validation_accuracy != null && <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-400/25 bg-emerald-400/5 px-4 py-3"><div><div className="font-mono text-[10px] uppercase text-emerald-300">Promoted model benchmark</div><p className="mt-1 text-xs text-slate-400">Held-out validation accuracy, separate from this clip&apos;s confidence.</p></div><div className="flex items-baseline gap-3"><strong className="font-display text-2xl text-emerald-300">{Math.round(report.provenance.validation_accuracy * 10000) / 100}%</strong><span className="text-xs text-slate-500">coverage {Math.round((report.provenance.prediction_coverage || 0) * 100)}%</span></div></div>}
 
-    <div className="rounded-lg border border-line bg-black/20 p-5">
+    <div className="panel p-5">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="eyebrow">Duration-aware state mix</div><h2 className="mt-1 text-lg font-bold">Merged vocal-state evidence</h2></div><BarChart3 className="text-cyan" size={20} /></div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{distribution.map((item) => <div className="rounded-lg border border-line bg-ink/50 p-3" key={item.label}><div className="flex justify-between gap-3 text-xs capitalize text-slate-400"><span>{item.label}</span><span>{item.event_count} event{item.event_count === 1 ? "" : "s"}</span></div><div className="mt-2 flex items-end justify-between gap-3"><strong className="text-2xl">{formatTime(item.duration_seconds)}</strong><span className="text-xs text-slate-500">{Math.round(item.average_confidence * 100)}% avg.</span></div></div>)}</div>
     </div>
-      <div className="rounded-lg border border-line bg-black/20 p-5">
-        <div className="flex items-center justify-between"><div><div className="eyebrow">Data quality</div><h2 className="mt-1 text-lg font-bold">Analysis context</h2></div><Waves className="text-cyan" size={20} /></div>
-        <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><QualityRow label="Audio duration" value={formatTime(report.data_quality?.audio_duration_seconds)} /><QualityRow label="Transcript lines" value={String(report.data_quality?.transcript_segment_count ?? transcript.length)} /><QualityRow label="Text signals" value={report.data_quality?.text_signals_applied ? "English only" : "Audio-led"} /><QualityRow label="Processing" value={report.provenance?.processing_time_ms ? `${(report.provenance.processing_time_ms / 1000).toFixed(1)}s` : "Not recorded"} /></dl>
-        <p className="mt-5 border-t border-line pt-4 text-xs leading-5 text-slate-500">Vocal-state classification supports race engineering review. It is not a medical or psychological diagnosis.</p>
-      </div>
-      </div>
-    </details>
 
     {report.correlation_available ? <div className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="eyebrow">Synchronized timeline</div><h2 className="mt-1 text-lg font-bold">Lap performance and radio evidence</h2></div><div className="text-xs text-amber-300">{report.association_notice}</div></div><div className="mt-5 h-[330px] w-full"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}><CartesianGrid stroke="#28313b" strokeDasharray="3 3" /><XAxis type="number" dataKey="lap_number" stroke="#718096" tickFormatter={(value) => `L${value}`} /><YAxis stroke="#718096" domain={["dataMin - 1", "dataMax + 1"]} tickFormatter={(value) => `${value}s`} /><Tooltip contentStyle={{ background: "#11161c", border: "1px solid #28313b", borderRadius: 8 }} /><Line type="monotone" dataKey="time" stroke="#62d5d0" strokeWidth={3} dot={{ r: 4, fill: "#62d5d0" }} /><Scatter data={displayedEvents.filter((event) => event.lap_number !== null).map((event) => ({ lap_number: event.lap_number, time: chartData.find((row) => row.lap_number === event.lap_number)?.time || 0, event }))} dataKey="time" fill="#ef4d4d" onClick={(entry) => { const event = (entry as { event?: ReportEvent })?.event; if (event) onSelect(eventToTimeline(event)); }} name="radio event" /></ComposedChart></ResponsiveContainer></div>{lapSummary && <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4"><Metric label="Median lap" value={`${lapSummary.median_lap_time_seconds}s`} detail={`${lapSummary.lap_count} real laps`} tone="cyan" /><Metric label="Best lap" value={`${lapSummary.best_lap_time_seconds}s`} detail="session best" tone="green" /><Metric label="Worst lap" value={`${lapSummary.worst_lap_time_seconds}s`} detail="session worst" tone="signal" /><Metric label="Timing window" value={`${formatTime(lapSummary.timing_start_seconds)} - ${formatTime(lapSummary.timing_end_seconds)}`} detail="supplied timing" tone="slate" /></div>}</div> : <div className="panel p-5"><div className="eyebrow">Lap performance</div><h2 className="mt-1 text-lg font-bold">No performance conclusion</h2><p className="mt-2 text-sm leading-6 text-slate-400">Import authentic timing data and re-run analysis to unlock lap context. Audio-only reports intentionally do not infer lap performance.</p></div>}
 
