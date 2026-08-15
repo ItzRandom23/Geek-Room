@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AudioWaveform, BrainCircuit, Check, CircleDashed, Clock3, Gauge, Radio, ScanLine, ShieldCheck, XCircle } from "lucide-react";
+import { CSSProperties } from "react";
+import { AudioWaveform, BrainCircuit, Check, CircleDashed, Gauge, Radio, ScanLine, ShieldCheck, XCircle } from "lucide-react";
 import { AnalysisJob } from "../lib/api";
 import { GhostButton } from "./ui";
 
@@ -22,26 +22,6 @@ export function getProcessingState(job: AnalysisJob) {
   return { progress, activeIndex, terminal };
 }
 
-const phaseCeilings: Record<string, number> = {
-  queued: 9,
-  decoding: 23,
-  transcribing: 45,
-  extracting_features: 67,
-  classifying: 81,
-  calibrating: 89,
-  correlating: 99,
-};
-
-function elapsedLabel(startedAt: string | null, now: number) {
-  if (!startedAt) return "Waiting for worker";
-  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(startedAt);
-  const started = new Date(hasTimezone ? startedAt : `${startedAt}Z`).getTime();
-  const elapsed = Math.max(0, Math.floor((now - started) / 1000));
-  const minutes = Math.floor(elapsed / 60);
-  const seconds = elapsed % 60;
-  return minutes ? `${minutes}m ${String(seconds).padStart(2, "0")}s elapsed` : `${seconds}s elapsed`;
-}
-
 export function ProcessingPanel({ job, onCancel }: { job: AnalysisJob; onCancel: () => void }) {
   const { progress, activeIndex } = getProcessingState(job);
   const running = job.status === "queued" || job.status === "running";
@@ -49,79 +29,52 @@ export function ProcessingPanel({ job, onCancel }: { job: AnalysisJob; onCancel:
   const cancelled = job.status === "cancelled";
   const activePhase = processingPhases[activeIndex];
   const statusTitle = failed ? "Analysis interrupted" : cancelled ? "Analysis cancelled" : activePhase?.detail || "Waiting for the analysis worker";
-  const [displayProgress, setDisplayProgress] = useState(progress);
-  const [now, setNow] = useState(() => Date.now());
-  const ceiling = phaseCeilings[job.phase] ?? progress;
-
-  useEffect(() => {
-    setDisplayProgress((current) => job.status === "completed" ? 100 : Math.max(current, progress));
-  }, [job.job_id, job.status, progress]);
-
-  useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => {
-      setNow(Date.now());
-      setDisplayProgress((current) => {
-        const floor = Math.max(current, progress);
-        if (floor >= ceiling) return floor;
-        return Math.min(ceiling, floor + Math.max(0.18, (ceiling - floor) * 0.045));
-      });
-    }, 650);
-    return () => window.clearInterval(timer);
-  }, [ceiling, progress, running]);
-
-  const displayedPercent = Math.round(displayProgress);
-  const confirmedSteps = Math.max(0, activeIndex);
-  const duration = useMemo(() => elapsedLabel(job.started_at, now), [job.started_at, now]);
-  const waitingOnModel = running && ["transcribing", "extracting_features"].includes(job.phase);
-
-  useEffect(() => {
-    setDisplayProgress(progress);
-  }, [job.job_id]);
+  const waveformHeights = [12, 22, 31, 18, 38, 25, 44, 30, 18, 35, 24, 40, 28, 16, 32, 20, 12, 27, 42, 19, 34, 24, 39, 15, 29, 21, 36, 17];
 
   return (
     <section
       role="status"
       aria-live="polite"
       aria-atomic="true"
-      className={`analysis-processing panel glass-edge mt-5 overflow-hidden ${failed ? "analysis-processing-error" : ""}`}
+      className={`analysis-processing panel glass-edge mt-5 overflow-hidden p-5 ${failed ? "analysis-processing-error" : ""}`}
+      style={{ "--analysis-progress": `${progress * 3.6}deg` } as CSSProperties}
     >
-      <div className="analysis-processing-head">
-        <div className="min-w-0">
-          <div className="eyebrow">Live radio analysis</div>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            {failed || cancelled ? <XCircle size={22} className={failed ? "text-signal" : "text-slate-400"} /> : null}
-            <h2 className="text-2xl font-bold">{statusTitle}</h2>
-            {running && <span className="analysis-live-pill"><span />Worker active</span>}
+      <div className="analysis-scan" aria-hidden="true" />
+      <div className="analysis-signal-rail" aria-hidden="true"><span /><span /><span /></div>
+      <div className="relative grid items-center gap-7 lg:grid-cols-[210px_1fr_auto]">
+        <div className="analysis-core mx-auto" aria-label={`${progress}% complete`}>
+          <span className="analysis-radar-ring analysis-radar-ring-one" aria-hidden="true" />
+          <span className="analysis-radar-ring analysis-radar-ring-two" aria-hidden="true" />
+          <div className="analysis-core-inner">
+            {failed || cancelled ? <XCircle size={28} className={failed ? "text-signal" : "text-slate-400"} /> : <AudioWaveform size={27} className="text-cyan" />}
+            <strong className="font-display text-3xl">{progress}%</strong>
+            <span className="font-mono text-[9px] uppercase text-slate-500">signal processed</span>
           </div>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+          <div className="analysis-orbit-marker" aria-hidden="true" />
+        </div>
+
+        <div className="min-w-0">
+          <div className="eyebrow">Step 5 / live processing</div>
+          <div className="mt-3 flex flex-wrap items-center gap-3"><h2 className="text-xl font-bold">{statusTitle}</h2>{running && <span className="analysis-live-pill"><span />Worker live</span>}</div>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
             {failed
               ? job.error?.message || "The worker could not complete this analysis."
               : cancelled
                 ? "The uploaded audio is unchanged and ready to analyse again."
-                : waitingOnModel
-                  ? "The models are reading speech and vocal cues. A first run can take longer while Hugging Face weights initialise."
-                  : "Transcript, vocal state, confidence, and optional lap context are assembled into one reviewable result."}
+                : "Measured probabilities are calibrated against the promoted model. Low-confidence audio resolves to uncertain."}
           </p>
+          <div className="analysis-waveform analysis-spectrum mt-5" aria-hidden="true">
+            {waveformHeights.map((height, index) => <span key={index} style={{ height, animationDelay: `${index * -55}ms` }} />)}
+          </div>
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/5">
+            <div className="analysis-progress h-full rounded-full" style={{ width: `${progress}%` }} />
+          </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-3">
-          <div className="analysis-clock"><Clock3 size={14} />{duration}</div>
-          {running && <GhostButton onClick={onCancel}>Cancel analysis</GhostButton>}
-        </div>
+
+        {running && <GhostButton onClick={onCancel}>Cancel analysis</GhostButton>}
       </div>
 
-      <div className="analysis-progress-card" aria-label={`${displayedPercent}% estimated complete`}>
-        <div className="analysis-progress-copy">
-          <strong>{displayedPercent}%</strong>
-          <span>Estimated overall progress</span>
-        </div>
-        <div className="analysis-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={displayedPercent} aria-valuetext={`${activePhase?.label || "Queued"}, ${displayedPercent}% estimated`}>
-          <div className="analysis-progress" style={{ width: `${displayProgress}%` }}><span /></div>
-        </div>
-        <div className="analysis-progress-meta"><span>Worker checkpoint: {progress}%</span><span>{confirmedSteps} of {processingPhases.length} stages complete</span></div>
-      </div>
-
-      <ol className="analysis-phases" aria-label="Analysis phases">
+      <ol className="analysis-phases relative mt-7 grid gap-2 sm:grid-cols-3 lg:grid-cols-6" aria-label="Analysis phases">
         {processingPhases.map((phase, index) => {
           const complete = job.status === "completed" || index < activeIndex;
           const active = running && index === activeIndex;
@@ -129,12 +82,11 @@ export function ProcessingPanel({ job, onCancel }: { job: AnalysisJob; onCancel:
           return (
             <li key={phase.id} className={`analysis-phase ${complete ? "is-complete" : ""} ${active ? "is-active" : ""}`}>
               <span className="analysis-phase-icon">{complete ? <Check size={14} /> : active ? <Icon size={14} /> : <CircleDashed size={14} />}</span>
-              <span className="min-w-0"><strong>{phase.label}</strong><small>{phase.detail}</small></span>
+              <span className="font-mono text-[10px] uppercase">{phase.label}</span>
             </li>
           );
         })}
       </ol>
-      <p className="analysis-progress-note">The percentage between worker checkpoints is an estimate. The highlighted stage is the confirmed backend state.</p>
     </section>
   );
 }
