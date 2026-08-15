@@ -118,7 +118,7 @@ export function ProcessingPanel({ job, onCancel }: { job: AnalysisJob; onCancel:
         <div className="analysis-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={displayedPercent} aria-valuetext={`${activePhase?.label || "Queued"}, ${displayedPercent}% estimated`}>
           <div className="analysis-progress" style={{ width: `${displayProgress}%` }}><span /></div>
         </div>
-        <div className="analysis-progress-meta"><span>Worker checkpoint: {progress}%</span><span>{confirmedSteps} of {processingPhases.length} stages complete</span></div>
+        <div className="analysis-progress-meta"><span>{confirmedSteps} of {processingPhases.length} stages complete</span></div>
       </div>
 
       <ol className="analysis-phases" aria-label="Analysis phases">
