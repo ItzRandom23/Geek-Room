@@ -103,16 +103,8 @@ Use Python 3.11 for the pinned backend dependency set (`backend/.python-version`
 ```powershell
 # 1. Backend
 cd backend
-<<<<<<< HEAD
 powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1
 .\.venv311\Scripts\Activate.ps1
-=======
-python -m pip install --user uv
-python -m uv python install 3.11
-.\.venv311\Scripts\Activate.ps1
-pip install -r requirements.txt
-copy .env.example .env
->>>>>>> 8037fc4 (updated)
 python -m app.seed_demo
 uvicorn app.main:app --reload --port 8000
 
@@ -151,17 +143,8 @@ To reset only the labelled demo fixture and recreate it, run `python -m app.seed
 
 ```powershell
 cd backend
-<<<<<<< HEAD
 powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1
 .\.venv311\Scripts\Activate.ps1
-=======
-python -m pip install --user uv
-python -m uv python install 3.11
-python -m uv venv --python 3.11 .venv311
-.\.venv311\Scripts\Activate.ps1
-pip install -r requirements.txt
-copy .env.example .env
->>>>>>> 8037fc4 (updated)
 # Edit .env: set HF_TOKEN if using gated models, or leave for open models
 python -m app.seed_demo
 uvicorn app.main:app --reload --port 8000

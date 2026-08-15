@@ -8,11 +8,7 @@ if not exist "%ROOT%backend\.env" (
   echo WARNING: backend\.env was not found. Copy backend\.env.example to backend\.env first.
 )
 
-<<<<<<< HEAD
 start "PitSense Backend" powershell -NoExit -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%ROOT%backend'; if (Test-Path '.venv311\Scripts\python.exe') { & '.venv311\Scripts\python.exe' -m uvicorn app.main:app --reload --port 8000 } else { Write-Host 'Python 3.11 backend environment missing. Run: powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1' -ForegroundColor Red }"
-=======
-start "PitSense Backend" powershell -NoExit -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%ROOT%backend'; if (Test-Path '.venv311\Scripts\python.exe') { & '.venv311\Scripts\python.exe' -m uvicorn app.main:app --reload --port 8000 } elseif (Test-Path '.venv\Scripts\python.exe') { & '.venv\Scripts\python.exe' -m uvicorn app.main:app --reload --port 8000 } else { python -m uvicorn app.main:app --reload --port 8000 }"
->>>>>>> 8037fc4 (updated)
 
 start "PitSense Frontend" powershell -NoExit -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%ROOT%frontend'; if (!(Test-Path 'node_modules')) { npm install }; npm run dev"
 
