@@ -62,7 +62,9 @@ def test_audio_only_does_not_create_or_claim_laps(monkeypatch):
     assert job["report"]["correlation_available"] is False
     assert client.get(f"/api/sessions/{session_id}/exports/report.json").status_code == 200
     assert client.get(f"/api/sessions/{session_id}/exports/report.csv").status_code == 200
-    assert client.get(f"/api/sessions/{session_id}/exports/report.pdf").headers["content-type"] == "application/pdf"
+    pdf = client.get(f"/api/sessions/{session_id}/exports/report.pdf")
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content.startswith(b"%PDF-")
     assert client.get(f"/api/sessions/{session_id}").json()["lap_count"] == 0
     client.delete(f"/api/sessions/{session_id}")
 

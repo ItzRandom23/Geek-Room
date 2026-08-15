@@ -20,6 +20,16 @@ class AuthLogin(BaseModel):
     password: str
 
 
+class ProfileUpdate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=160)
+    email: str = Field(min_length=5, max_length=255)
+
+
+class PasswordUpdate(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class AnalysisRequest(BaseModel):
     mode: str = Field(default="auto", pattern="^(auto|audio_only|lap_correlated)$")
 

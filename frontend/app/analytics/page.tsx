@@ -24,7 +24,6 @@ function MetricCard({ label, value, detail, icon: Icon, tone }: { label: string;
 }
 
 function SessionRow({ session }: { session: Session }) {
-  const statusIcon = { analysed: "text-emerald-400", audio_ready: "text-cyan", queued: "text-amber-400", analysing: "text-amber-400", error: "text-signal", ready: "text-slate-500" }[session.status] || "text-slate-500";
   const statusLabel = { analysed: "Analysed", audio_ready: "Audio ready", queued: "Queued", analysing: "Analysing", error: "Error", ready: "Created" }[session.status] || session.status;
   const eventCount = session.report?.summary?.event_count || 0;
   const primaryState = session.report?.primary_state || "—";
@@ -70,8 +69,6 @@ export default function AnalyticsPage() {
 
   useEffect(() => { checkOnboarding(); if (onboardingChecked) load(); }, [router, onboardingChecked]);
 
-  if (!onboardingChecked) return <main className="mx-auto max-w-7xl px-6 py-20 text-slate-400">Loading…</main>;
-
   const filtered = useMemo(() => {
     let result = sessions.filter(s => {
       if (statusFilter !== "all" && s.status !== statusFilter) return false;
@@ -114,6 +111,18 @@ export default function AnalyticsPage() {
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
   }, [analysedSessions]);
+
+  function exportFiltered() {
+    const rows = ["session,driver,circuit,status,events,primary_state,mode,created_at", ...filtered.map(session => [session.name, session.driver_name, session.circuit_name, session.status, session.report?.summary?.event_count || 0, session.report?.primary_state || "", session.report?.correlation_available ? "lap_correlated" : "audio_only", session.created_at].map(value => `"${String(value).replaceAll('"', '""')}"`).join(","))];
+    const url = URL.createObjectURL(new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "pitsense-filtered-sessions.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (!onboardingChecked) return <main className="mx-auto max-w-7xl px-6 py-20 text-slate-400">Loading…</main>;
 
   return (
     <main className="mx-auto min-h-[calc(100vh-150px)] max-w-7xl px-6 py-12">
@@ -173,7 +182,7 @@ export default function AnalyticsPage() {
         {filtered.length > 0 && (
           <div className="mt-4 flex items-center justify-between text-sm text-slate-400">
             <span>Showing {filtered.length} of {sessions.length} sessions</span>
-            <Button disabled>Export filtered (CSV)</Button>
+            <Button onClick={exportFiltered}>Export filtered (CSV)</Button>
           </div>
         )}
       </section>

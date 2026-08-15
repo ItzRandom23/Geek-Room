@@ -59,7 +59,12 @@ export function ResultsDashboard({ report, timeline, chartData, selected, onSele
 
   const copyRecommendation = async () => {
     const recommendation = report.recommendations[0]?.recommendation;
-    if (recommendation && navigator.clipboard) await navigator.clipboard.writeText(recommendation);
+    if (!recommendation || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(recommendation);
+    } catch {
+      // Clipboard access is optional; the report remains fully usable without it.
+    }
   };
 
   return <section className="mt-5 space-y-5" aria-label="Analysis report">

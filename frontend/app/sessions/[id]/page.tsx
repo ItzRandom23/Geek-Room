@@ -196,7 +196,14 @@ export default function SessionPage() {
 
   function seek(event: TimelineEvent) {
     setSelected(event);
-    if (audioRef.current) { audioRef.current.currentTime = event.timestamp; void audioRef.current.play(); }
+    if (audioRef.current) {
+      audioRef.current.currentTime = event.timestamp;
+      // Selecting evidence can be followed immediately by navigation. Browsers
+      // reject play() when the media element is removed during that transition;
+      // the selection itself remains valid and should not create an unhandled
+      // console error.
+      void audioRef.current.play().catch(() => undefined);
+    }
   }
 
   async function download(format: "json" | "csv" | "pdf") {

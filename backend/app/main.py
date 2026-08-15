@@ -17,7 +17,7 @@ from .auth import create_access_token, get_current_user, hash_password, verify_p
 from .config import get_settings
 from .database import get_db, run_migrations
 from .models import AnalysisJob, AuditEvent, AudioClip, Insight, Lap, Membership, Organization, Session, User
-from .schemas import AnalysisRequest, AuthLogin, AuthRegister, LapInput, SessionCreate
+from .schemas import AnalysisRequest, AuthLogin, AuthRegister, LapInput, PasswordUpdate, ProfileUpdate, SessionCreate
 from .services.ai import ProviderBundle, build_provider_bundle, emotion_model_status, normalize_language
 from .services.analysis import Event, build_report, event_lap, overlapping_text
 from .services.audio import audio_duration, resolve_audio, save_audio
@@ -239,6 +239,9 @@ def serialize_session(session: Session, include_analysis: bool = False) -> dict:
         audio.append({"id": item.id, "original_filename": item.original_filename, "duration_seconds": duration, "detected_language": item.detected_language, "sample_rate": item.sample_rate, "processing_status": item.processing_status, "active": item.id == session.active_clip_id, "uploaded_at": item.uploaded_at})
     laps = [{"id": item.id, "lap_number": item.lap_number, "lap_time_seconds": item.lap_time_seconds, "start_timestamp_seconds": item.start_timestamp_seconds, "end_timestamp_seconds": item.end_timestamp_seconds} for item in sorted(session.laps, key=lambda row: row.lap_number)]
     payload = {"id": session.id, "name": session.name, "driver_name": session.driver_name, "circuit_name": session.circuit_name, "created_at": session.created_at, "status": session.status, "is_demo": session.is_demo, "organization_id": session.organization_id, "analysis_mode": session.analysis_mode, "active_clip_id": session.active_clip_id, "audio_count": len(audio), "lap_count": len(laps), "audio": audio, "laps": laps}
+    if session.status == "analysed" and not include_analysis:
+        report = make_report(session)
+        payload["report"] = {"primary_state": report.get("primary_state"), "confidence": report.get("confidence"), "correlation_available": report.get("correlation_available", False), "summary": report.get("summary")}
     if include_analysis:
         clip = active_clip(session)
         transcript = [{"id": item.id, "start_seconds": item.start_seconds, "end_seconds": item.end_seconds, "text": item.text} for item in sorted(clip.transcript_segments if clip else [], key=lambda row: row.start_seconds)]
@@ -346,6 +349,32 @@ def me(user: User | None = Depends(get_current_user), db: DbSession = Depends(ge
     memberships = db.scalars(select(Membership).where(Membership.user_id == user.id)).all()
     organizations = [{"id": item.organization_id, "role": item.role, "name": db.get(Organization, item.organization_id).name} for item in memberships]
     return {"authenticated": True, "user": {"id": user.id, "email": user.email, "full_name": user.full_name, "onboarding_completed": user.onboarding_completed}, "organizations": organizations}
+
+
+@app.patch("/api/me")
+def update_me(payload: ProfileUpdate, user: User | None = Depends(get_current_user), db: DbSession = Depends(get_db)):
+    if user is None:
+        raise HTTPException(401, "Authentication required.")
+    email = payload.email.strip().lower()
+    if db.scalar(select(User).where(User.email == email, User.id != user.id)):
+        raise HTTPException(409, "An account with that email already exists.")
+    user.full_name = payload.full_name.strip()
+    user.email = email
+    audit(db, "profile.updated", user=user)
+    db.commit()
+    return {"id": user.id, "email": user.email, "full_name": user.full_name, "onboarding_completed": user.onboarding_completed}
+
+
+@app.post("/api/me/password")
+def update_password(payload: PasswordUpdate, user: User | None = Depends(get_current_user), db: DbSession = Depends(get_db)):
+    if user is None:
+        raise HTTPException(401, "Authentication required.")
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(400, "Current password is incorrect.")
+    user.password_hash = hash_password(payload.new_password)
+    audit(db, "password.updated", user=user)
+    db.commit()
+    return {"updated": True}
 
 
 @app.get("/api/organizations")

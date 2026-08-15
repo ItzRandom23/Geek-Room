@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from html import escape
+from textwrap import wrap
 from typing import Any
 
 
@@ -30,12 +31,75 @@ def _table(headers: list[str], rows: list[list[str]], class_name: str = "") -> s
     return f"<table class='{class_name}'><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
 
+def _fallback_pdf(session, report: dict) -> bytes:
+    """Return a valid lightweight PDF when the optional HTML renderer is absent."""
+    summary = report.get("summary") or {}
+    risk = summary.get("highest_risk_event") or {}
+    lines = [
+        "PitSense AI - Analysis report",
+        str(getattr(session, "name", "Session")),
+        f"Driver: {getattr(session, 'driver_name', '-')} | Circuit: {getattr(session, 'circuit_name', '-')}",
+        f"Primary state: {report.get('primary_state', 'uncertain')} ({_percent(report.get('confidence'))})",
+        f"Source language: {summary.get('language') or (report.get('provenance') or {}).get('language') or 'und'}",
+        f"Evidence events: {summary.get('event_count', 0)}",
+        "",
+        "Highest-risk evidence",
+        f"{risk.get('label', 'No reportable event')} | {_seconds(risk.get('start_seconds'))} - {_seconds(risk.get('end_seconds'))} | {_percent(risk.get('confidence'))}",
+        str(risk.get("transcript") or "No overlapping transcript excerpt."),
+        "",
+        "Recommendations",
+    ]
+    for item in report.get("recommendations") or []:
+        lines.extend([f"[{item.get('severity', 'info').upper()}] {item.get('title', 'Recommendation')}", str(item.get("recommendation") or "")])
+    lines.extend(["", "Timestamped radio"])
+    for item in report.get("timestamped_transcript") or []:
+        lines.append(f"{_seconds(item.get('start_seconds'))}-{_seconds(item.get('end_seconds'))}: {item.get('text', '')}")
+
+    content_lines = []
+    for line in lines:
+        safe = str(line).encode("ascii", "replace").decode("ascii")
+        content_lines.extend(wrap(safe, width=92) or [""])
+    pages = [content_lines[index:index + 46] for index in range(0, len(content_lines), 46)] or [[""]]
+
+    objects: list[bytes] = []
+    page_ids: list[int] = []
+    font_id = 3 + len(pages) * 2
+    for page in pages:
+        page_id = 3 + len(page_ids) * 2
+        page_ids.append(page_id)
+        stream_lines = ["BT", "/F1 10 Tf", "50 790 Td", "14 TL"]
+        for line in page:
+            escaped = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+            stream_lines.append(f"({escaped}) Tj T*" if escaped else "T*")
+        stream_lines.append("ET")
+        stream = "\n".join(stream_lines).encode("latin-1", "replace")
+        objects.extend([
+            f"{page_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {page_id + 1} 0 R >> endobj\n".encode(),
+            f"{page_id + 1} 0 obj << /Length {len(stream)} >> stream\n".encode() + stream + b"\nendstream endobj\n",
+        ])
+    objects.insert(0, b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n")
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+    objects.insert(1, f"2 0 obj << /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >> endobj\n".encode())
+    objects.append(f"{font_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".encode())
+
+    output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(output))
+        output.extend(obj)
+    xref = len(output)
+    output.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode())
+    output.extend("".join(f"{offset:010d} 00000 n \n" for offset in offsets[1:]).encode())
+    output.extend(f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF".encode())
+    return bytes(output)
+
+
 def render_pdf_report(session, report: dict) -> bytes:
     """Render a self-contained PDF with Pango font fallback and no remote assets."""
     try:
         from weasyprint import HTML
-    except (ImportError, OSError) as exc:  # pragma: no cover - deployed dependency
-        raise RuntimeError("PDF rendering is unavailable. Install the backend PDF dependencies.") from exc
+    except (ImportError, OSError):  # pragma: no cover - exercised on minimal local installs
+        HTML = None
 
     summary = report.get("summary") or {}
     provenance = report.get("provenance") or {}
@@ -118,4 +182,4 @@ table {{ border-collapse: collapse; margin: 2mm 0 4mm; table-layout: fixed; widt
 <section><h2>Lap context</h2><p>{_text('No real lap data was supplied; no performance conclusion was made.' if not lap_summary else f"{lap_summary.get('lap_count')} laps | median {lap_summary.get('median_lap_time_seconds')}s | best {lap_summary.get('best_lap_time_seconds')}s | worst {lap_summary.get('worst_lap_time_seconds')}s")}</p>{_table(['Event','State','Lap','Next lap','Next delta','Slower than median'], correlation_rows)}</section>
 <section><h2>Highest-risk evidence</h2><p><strong>{_text(risk.get('label', 'No reportable event')).title()}</strong> {_seconds(risk.get('start_seconds'))} - {_seconds(risk.get('end_seconds'))}, {_percent(risk.get('confidence'))}</p><p dir='auto'>{_text(risk.get('transcript'))}</p></section>
 </body></html>"""
-    return HTML(string=html).write_pdf()
+    return HTML(string=html).write_pdf() if HTML is not None else _fallback_pdf(session, report)
