@@ -43,12 +43,10 @@ export default function Home() {
             PitSense turns driver radio into a live performance layer, combining transcript, vocal state, lap context, and the next engineering action.
           </p>
           <div className="reveal reveal-delay-3 mt-8 flex flex-wrap gap-3">
-            <Link href="/sessions" className="btn-glow text-base">
-              Analyse radio <ArrowRight size={17} />
+            <Link href="/login" className="btn-glow text-base">
+              Sign in to analyse <ArrowRight size={17} />
             </Link>
-            <Link href="/sessions?demo=1" className="btn-ghost text-base">
-              <Activity size={17} /> Explore demo session
-            </Link>
+            <a href="#analysis-modes" className="btn-ghost text-base"><Activity size={17} /> See analysis modes</a>
           </div>
           <div className="reveal reveal-delay-3 mt-8 flex flex-wrap gap-x-6 gap-y-3 border-t border-white/[0.07] pt-5 font-mono text-[10px] uppercase text-slate-500">
             <span className="flex items-center gap-2"><ShieldCheck size={14} className="text-cyan" /> Private backend inference</span>
@@ -101,7 +99,31 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="border-y border-white/[0.07] bg-black/10">
+      <section id="analysis-modes" className="scroll-mt-24 border-y border-white/[0.07] bg-black/10">
+        <div className="mx-auto max-w-7xl px-6 py-16">
+          <div className="section-badge">Two ways to analyse</div>
+          <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
+            <h2 className="max-w-3xl text-3xl font-bold leading-tight">Start with radio alone. Add real lap timing when you need performance context.</h2>
+            <span className="font-mono text-[10px] uppercase text-slate-500">Audio duration is never treated as lap data</span>
+          </div>
+          <div className="mt-8 grid gap-5 lg:grid-cols-2">
+            <article className="glass-card glass-edge p-6">
+              <div className="flex items-center justify-between gap-4"><span className="flex h-11 w-11 items-center justify-center rounded-lg border border-cyan/20 bg-cyan/[0.07]"><Radio className="text-cyan" size={20} /></span><span className="chip border-cyan/30 text-cyan">No timing file needed</span></div>
+              <h3 className="mt-5 text-xl font-semibold">Audio-only analysis</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-400">Transcribes the radio, identifies vocal states such as stress or urgency, and produces evidence-linked recommendations. It does not make claims about lap performance.</p>
+              <div className="mt-5 border-t border-white/[0.07] pt-4 text-xs text-slate-500">Best for radio review, safety triage, coaching notes, and any clip without telemetry.</div>
+            </article>
+            <article className="glass-card glass-edge p-6">
+              <div className="flex items-center justify-between gap-4"><span className="flex h-11 w-11 items-center justify-center rounded-lg border border-[#ff7840]/20 bg-[#ff7840]/[0.07]"><Gauge className="text-[#ff7840]" size={20} /></span><span className="chip border-[#ff7840]/30 text-[#ff8958]">Real timing required</span></div>
+              <h3 className="mt-5 text-xl font-semibold">Audio + lap context</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-400">Uses lap number, lap time, and start/end timestamps from telemetry or a timing sheet to place each radio event on the correct lap and compare it with session pace.</p>
+              <div className="mt-5 border-t border-white/[0.07] pt-4 text-xs text-slate-500">Best for checking whether stressed or urgent radio coincides with slower laps or other timing changes.</div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-white/[0.07] bg-black/10">
         <div className="mx-auto max-w-7xl px-6 py-16">
           <div className="section-badge">The problem</div>
           <h2 className="mt-5 max-w-3xl text-3xl font-bold leading-tight">Race radio is the only real-time window into the driver's state — and most teams never hear it in time.</h2>
@@ -122,7 +144,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="border-y border-white/[0.07] bg-black/10">
+      <section id="workflow" className="scroll-mt-24 border-y border-white/[0.07] bg-black/10">
         <div className="mx-auto grid max-w-7xl px-6 md:grid-cols-[.8fr_1.2fr]">
           <div className="py-12 pr-0 md:border-r md:border-white/[0.07] md:pr-12">
             <div className="section-badge">Signal chain</div>
@@ -180,12 +202,12 @@ export default function Home() {
           <h2 className="mt-5 text-3xl font-bold">Open the demo session from your secure team account.</h2>
           <p className="mt-3 max-w-xl mx-auto text-sm leading-6 text-slate-400">The seeded demo contains real transcript, vocal-state markers, lap correlation, and a complete engineer report — all explicitly labelled as fixture data.</p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/sessions?demo=1" className="btn-glow text-base">
-              <Activity size={17} /> Explore demo session
+            <Link href="/login" className="btn-glow text-base">
+              <Activity size={17} /> Sign in to explore
             </Link>
-            <Link href="/sessions" className="btn-ghost text-base">
-              Create your session <ArrowRight size={17} />
-            </Link>
+            <a href="#workflow" className="btn-ghost text-base">
+              See how it works <ArrowRight size={17} />
+            </a>
           </div>
         </div>
       </section>

@@ -108,8 +108,8 @@ export default function SettingsPage() {
       {error && <div className="mt-6"><ErrorBox message={error} /></div>}
       {success && <div className="mt-6 rounded-lg border border-emerald-400/30 bg-emerald-400/5 px-4 py-3 text-sm text-emerald-300">{success}</div>}
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[260px_1fr]">
-        <aside className="panel p-4 sticky top-24 h-fit">
+      <div className="mt-8 grid items-start gap-6 lg:grid-cols-[260px_1fr]">
+        <aside className="settings-sidebar panel h-fit self-start p-4">
           <nav className="space-y-1" aria-label="Settings sections">
             {[
               { id: "profile", label: "Profile", icon: UserRound },

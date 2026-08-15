@@ -96,10 +96,29 @@ export default function OnboardingPage() {
 
         {step === 1 && (
           <form onSubmit={(e) => { e.preventDefault(); nextStep(); }} className="mt-6 space-y-4">
-            <label className="block text-xs text-slate-400">Championship / Series<input placeholder="FIA WEC, IMSA, GT3, Club..." value={context.series || ""} onChange={e => setContext({ ...context, series: e.target.value })} className="field mt-2" /></label>
-            <label className="block text-xs text-slate-400">Car class<input placeholder="LMP2, GT3, TCR, Formula 4..." value={context.car_class || ""} onChange={e => setContext({ ...context, car_class: e.target.value })} className="field mt-2" /></label>
-            <label className="block text-xs text-slate-400">Typical session format<input placeholder="Practice, Qualifying, Race, Test day..." value={context.session_format || ""} onChange={e => setContext({ ...context, session_format: e.target.value })} className="field mt-2" /></label>
-            <p className="text-xs text-slate-500">All fields are optional. You can update them anytime in Settings.</p>
+            <label className="block text-xs text-slate-400">Championship / series
+              <select value={context.series || ""} onChange={e => setContext({ ...context, series: e.target.value })} className="field mt-2">
+                <option value="">Select a series (optional)</option>
+                <option>Formula 1</option><option>Formula 2 / Formula 3</option><option>Formula E</option>
+                <option>FIA WEC</option><option>IMSA</option><option>GT World Challenge / GT3</option>
+                <option>IndyCar</option><option>NASCAR</option><option>Club racing / track day</option><option>Others</option>
+              </select>
+            </label>
+            <label className="block text-xs text-slate-400">Car class
+              <select value={context.car_class || ""} onChange={e => setContext({ ...context, car_class: e.target.value })} className="field mt-2">
+                <option value="">Select a car class (optional)</option>
+                <option>Formula</option><option>Prototype / Hypercar</option><option>GT</option>
+                <option>Touring car</option><option>Stock car</option><option>Kart</option><option>Road car</option><option>Others</option>
+              </select>
+            </label>
+            <label className="block text-xs text-slate-400">Typical session format
+              <select value={context.session_format || ""} onChange={e => setContext({ ...context, session_format: e.target.value })} className="field mt-2">
+                <option value="">Select a format (optional)</option>
+                <option>Practice</option><option>Qualifying</option><option>Sprint</option><option>Race</option>
+                <option>Test day</option><option>Simulation</option><option>Others</option>
+              </select>
+            </label>
+            <p className="text-xs leading-5 text-slate-500">Testers can leave these blank or choose Others. You can update the context later in Settings.</p>
             <div className="flex justify-between pt-4 border-t border-white/[0.07]">
               <Button type="button" variant="ghost" onClick={prevStep}><ArrowLeft size={15} className="mr-1" />Back</Button>
               <Button disabled={busy}>{busy ? "Continuing..." : <>Continue <ArrowRight size={15} /></>}</Button>

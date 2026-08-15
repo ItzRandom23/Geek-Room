@@ -9,7 +9,7 @@ import numpy as np
 from fastapi import HTTPException, UploadFile
 from ..config import get_settings
 
-ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg"}
+ALLOWED_EXTENSIONS = {".wav", ".mp3", ".mpeg", ".mpga", ".m4a", ".ogg"}
 ALLOWED_MIME_PREFIXES = {"audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/x-m4a", "audio/ogg", "application/ogg"}
 
 
@@ -20,7 +20,7 @@ def _signature_matches(ext: str, header: bytes) -> bool:
         return header[:4] == b"OggS"
     if ext == ".m4a":
         return b"ftyp" in header[:32]
-    if ext == ".mp3":
+    if ext in {".mp3", ".mpeg", ".mpga"}:
         return header[:3] == b"ID3" or (len(header) >= 2 and header[0] == 0xFF and header[1] & 0xE0 == 0xE0)
     return False
 
@@ -29,7 +29,7 @@ async def save_audio(upload: UploadFile, upload_dir: str, max_mb: int, max_durat
     original = Path(upload.filename or "audio").name
     ext = Path(original).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(415, "Unsupported audio format. Use WAV, MP3, M4A, or OGG.")
+        raise HTTPException(415, "Unsupported audio format. Use WAV, MP3/MPEG, M4A, or OGG.")
     if upload.content_type and upload.content_type not in ALLOWED_MIME_PREFIXES:
         guessed = mimetypes.guess_type(original)[0]
         if guessed not in ALLOWED_MIME_PREFIXES:

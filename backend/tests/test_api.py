@@ -7,6 +7,7 @@ from app.database import Base, engine
 from app.main import app
 from app.database import SessionLocal
 from app.models import AnalysisJob, AudioClip, Session
+from app.services.audio import ALLOWED_EXTENSIONS, _signature_matches
 
 
 client = TestClient(app)
@@ -16,6 +17,12 @@ def test_health():
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_mpeg_audio_extensions_accept_mp3_signatures():
+    header = b"ID3" + (b"\x00" * 32)
+    assert {".mp3", ".mpeg", ".mpga"} <= ALLOWED_EXTENSIONS
+    assert all(_signature_matches(extension, header) for extension in (".mp3", ".mpeg", ".mpga"))
 
 
 def test_model_status_separates_validation_accuracy_from_prediction_confidence():
