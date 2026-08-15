@@ -4,8 +4,6 @@ import re
 import uuid
 import csv
 import io
-import time
-from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
@@ -25,6 +23,7 @@ from .services.analysis import Event, build_report, event_lap, overlapping_text
 from .services.audio import audio_duration, resolve_audio, save_audio
 from .services.csv_import import parse_lap_csv, validate_lap_rows
 from .services.pdf_report import render_pdf_report
+from .services.rate_limit import get_limiter
 from .jobs import enqueue_analysis, serialize_job
 from .storage import get_storage
 
@@ -51,24 +50,41 @@ async def lifespan(_app: FastAPI):
 run_migrations()
 app = FastAPI(title="PitSense AI API", version="1.0.0", description="Race radio intelligence and lap-performance correlation API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-_rate_events: dict[str, deque[float]] = defaultdict(deque)
+
+AUTH_RATE_LIMITS = {"/api/auth/login": (5, 60), "/api/auth/register": (3, 3600)}
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limited_response(request_id: str, origin: str | None, retry_after: int = 60) -> JSONResponse:
+    headers = {"Retry-After": str(retry_after), "x-request-id": request_id}
+    if origin and origin in settings.cors_list:
+        headers.update({"Access-Control-Allow-Origin": origin, "Access-Control-Allow-Credentials": "true", "Vary": "Origin"})
+    return JSONResponse(status_code=429, content={"error": {"code": "RATE_LIMITED", "message": "Too many requests. Please wait before retrying.", "retryable": True, "request_id": request_id}}, headers=headers)
 
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = request_id
-    if request.method == "POST" and ("/audio" in request.url.path or request.url.path.endswith("/analyse")):
-        bucket = "upload" if "/audio" in request.url.path else "analysis"
-        limit = 30 if bucket == "upload" else 10
-        key = f"{bucket}:{request.client.host if request.client else 'unknown'}"
-        events = _rate_events[key]
-        cutoff = time.monotonic() - 60
-        while events and events[0] < cutoff:
-            events.popleft()
-        if len(events) >= limit:
-            return JSONResponse(status_code=429, content={"error": {"code": "RATE_LIMITED", "message": "Too many requests. Please wait before retrying.", "retryable": True, "request_id": request_id}}, headers={"Retry-After": "60", "x-request-id": request_id})
-        events.append(time.monotonic())
+    origin = request.headers.get("origin")
+    limiter = get_limiter()
+    if request.method == "POST":
+        path = request.url.path
+        if path in AUTH_RATE_LIMITS:
+            limit, window = AUTH_RATE_LIMITS[path]
+            if not limiter.hit(f"auth:{path}:{_client_ip(request)}", limit, window):
+                return _rate_limited_response(request_id, origin, retry_after=window)
+        elif "/audio" in request.url.path or request.url.path.endswith("/analyse"):
+            limit, window = (30, 60) if "/audio" in request.url.path else (10, 60)
+            bucket = "upload" if "/audio" in request.url.path else "analysis"
+            if not limiter.hit(f"{bucket}:{_client_ip(request)}", limit, window):
+                return _rate_limited_response(request_id, origin, retry_after=60)
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
     response.headers["x-content-type-options"] = "nosniff"
@@ -305,19 +321,22 @@ def register(payload: AuthRegister, db: DbSession = Depends(get_db)):
     db.flush()
     db.add(Membership(user_id=user.id, organization_id=organization.id, role="owner"))
     db.commit()
-    return {"access_token": create_access_token(user, organization), "token_type": "bearer", "user": {"id": user.id, "email": user.email, "full_name": user.full_name}, "organization": {"id": organization.id, "name": organization.name, "role": "owner"}}
+    return {"access_token": create_access_token(user, organization), "token_type": "bearer", "user": {"id": user.id, "email": user.email, "full_name": user.full_name, "onboarding_completed": user.onboarding_completed}, "organization": {"id": organization.id, "name": organization.name, "role": "owner"}}
 
 
 @app.post("/api/auth/login")
 def login(payload: AuthLogin, db: DbSession = Depends(get_db)):
-    user = db.scalar(select(User).where(User.email == payload.email.strip().lower()))
+    email = payload.email.strip().lower()
+    if not get_limiter().hit(f"auth-login-email:{email}", 10, 900):
+        raise HTTPException(429, "Too many attempts for this account. Please wait before retrying.")
+    user = db.scalar(select(User).where(User.email == email))
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(401, "Incorrect email or password.")
     organization = primary_organization(db, user)
     if not organization:
         raise HTTPException(403, "Your account is not assigned to an organization.")
     membership = db.scalar(select(Membership).where(Membership.user_id == user.id, Membership.organization_id == organization.id))
-    return {"access_token": create_access_token(user, organization), "token_type": "bearer", "user": {"id": user.id, "email": user.email, "full_name": user.full_name}, "organization": {"id": organization.id, "name": organization.name, "role": membership.role if membership else "engineer"}}
+    return {"access_token": create_access_token(user, organization), "token_type": "bearer", "user": {"id": user.id, "email": user.email, "full_name": user.full_name, "onboarding_completed": user.onboarding_completed}, "organization": {"id": organization.id, "name": organization.name, "role": membership.role if membership else "engineer"}}
 
 
 @app.get("/api/me")
@@ -326,7 +345,7 @@ def me(user: User | None = Depends(get_current_user), db: DbSession = Depends(ge
         return {"authenticated": False}
     memberships = db.scalars(select(Membership).where(Membership.user_id == user.id)).all()
     organizations = [{"id": item.organization_id, "role": item.role, "name": db.get(Organization, item.organization_id).name} for item in memberships]
-    return {"authenticated": True, "user": {"id": user.id, "email": user.email, "full_name": user.full_name}, "organizations": organizations}
+    return {"authenticated": True, "user": {"id": user.id, "email": user.email, "full_name": user.full_name, "onboarding_completed": user.onboarding_completed}, "organizations": organizations}
 
 
 @app.get("/api/organizations")
@@ -335,6 +354,15 @@ def organizations(user: User | None = Depends(get_current_user), db: DbSession =
         return []
     memberships = db.scalars(select(Membership).where(Membership.user_id == user.id)).all()
     return [{"id": item.organization_id, "role": item.role, "name": db.get(Organization, item.organization_id).name} for item in memberships]
+
+
+@app.post("/api/onboarding/complete")
+def complete_onboarding(user: User = Depends(get_current_user), db: DbSession = Depends(get_db)):
+    if user is None:
+        raise HTTPException(401, "Authentication required.")
+    user.onboarding_completed = True
+    db.commit()
+    return {"onboarding_completed": True}
 
 
 @app.post("/api/sessions", status_code=201)
@@ -492,7 +520,7 @@ async def upload_laps_csv(session_id: int, csv_file: UploadFile = File(...), db:
     rows = await parse_lap_csv(csv_file)
     db.query(Lap).filter(Lap.session_id == session.id).delete()
     db.add_all([Lap(session_id=session.id, **row) for row in rows])
-    session.status = "ready"
+    session.status = "audio_ready" if session.active_clip_id else "ready"
     db.commit()
     return {"count": len(rows), "laps": rows}
 
@@ -506,7 +534,7 @@ def upload_laps_manual(session_id: int, rows: list[LapInput], db: DbSession = De
     validate_lap_rows([row.model_dump() for row in rows])
     db.query(Lap).filter(Lap.session_id == session.id).delete()
     db.add_all([Lap(session_id=session.id, **row.model_dump()) for row in rows])
-    session.status = "ready"
+    session.status = "audio_ready" if session.active_clip_id else "ready"
     db.commit()
     return {"count": len(rows)}
 

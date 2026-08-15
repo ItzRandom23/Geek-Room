@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AnalysisJob } from "../lib/api";
 import { getProcessingState, ProcessingPanel } from "../components/processing-panel";
+import { ErrorBox } from "../components/ui";
 
 function job(overrides: Partial<AnalysisJob> = {}): AnalysisJob {
   return {
@@ -42,5 +43,14 @@ describe("processing panel", () => {
     expect(failed).toContain("Model unavailable");
     expect(cancelled).toContain("Analysis cancelled");
     expect(cancelled).not.toContain("Cancel analysis</button>");
+  });
+});
+
+describe("error messages", () => {
+  it("renders a clear heading and actionable detail", () => {
+    const html = renderToStaticMarkup(<ErrorBox title="Lap data needs correction" message="Lap 2 must start at 90 seconds." />);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Lap data needs correction");
+    expect(html).toContain("Lap 2 must start at 90 seconds.");
   });
 });

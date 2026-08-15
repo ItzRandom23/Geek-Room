@@ -1,11 +1,13 @@
 from collections.abc import Mapping
 
-NORMALIZED = ("calm", "stressed", "tired", "frustrated", "urgent", "uncertain")
+NORMALIZED = ("calm", "positive", "subdued", "stressed", "tired", "frustrated", "urgent", "uncertain")
 
 LABEL_MAP = {
-    "neu": "calm", "neutral": "calm", "calm": "calm", "happy": "calm", "joy": "calm",
-    "hap": "calm", "angry": "frustrated", "anger": "frustrated", "ang": "frustrated", "frustrated": "frustrated",
-    "sad": "tired", "sadness": "tired", "tired": "tired", "fear": "stressed", "fea": "stressed", "fearful": "stressed",
+    "neu": "calm", "neutral": "calm", "calm": "calm",
+    "happy": "positive", "joy": "positive", "hap": "positive", "positive": "positive",
+    "sad": "subdued", "sadness": "subdued", "subdued": "subdued",
+    "angry": "frustrated", "anger": "frustrated", "ang": "frustrated", "frustrated": "frustrated",
+    "tired": "tired", "fatigue": "tired", "fatigued": "tired", "fear": "stressed", "fea": "stressed", "fearful": "stressed",
     "stress": "stressed", "stressed": "stressed", "excited": "urgent", "surprise": "urgent",
     "urgent": "urgent", "disgust": "frustrated", "unknown": "uncertain", "uncertain": "uncertain", "sur": "urgent",
 }

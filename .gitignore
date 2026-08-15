@@ -1,5 +1,7 @@
 .env
 backend/.env
+backend/vercel.env
+frontend/.env.local
 backend/pitsense.db
 backend/*.db
 backend/uploads/
@@ -10,3 +12,9 @@ frontend/node_modules/
 frontend/.next/
 frontend/coverage/
 *.pyc
+docs/JUDGES_QA.md
+docs/DEMO_SCRIPT.md
+docs/PRESENTATION_PLAN.md
+docs/DEMO_BACKUP.md
+docs/FINAL_AUDIT.md
+judge-qa-answers.md

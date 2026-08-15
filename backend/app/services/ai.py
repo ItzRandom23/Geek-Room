@@ -74,11 +74,18 @@ class HuggingFaceSpeechToText(SpeechToTextProvider):
         # Whisper supports both transcription and translation. Always select
         # transcription so the stored radio evidence remains in the language
         # spoken by the driver.
+        configured_language = normalize_language(self.settings.stt_language)
+        generate_kwargs = {"task": "transcribe"}
+        if configured_language != "und":
+            # Short, noisy radio clips are especially prone to Whisper choosing
+            # a related but incorrect language. Supplying the known source
+            # language prevents English speech from being decoded as Spanish.
+            generate_kwargs["language"] = configured_language
         output = pipe(
             {"array": audio, "sampling_rate": sample_rate},
             return_timestamps=True,
             return_language=True,
-            generate_kwargs={"task": "transcribe"},
+            generate_kwargs=generate_kwargs,
         )
         chunks = output.get("chunks", []) if isinstance(output, dict) else []
         segments = []
@@ -92,7 +99,9 @@ class HuggingFaceSpeechToText(SpeechToTextProvider):
         transcript = str(output.get("text", "") if isinstance(output, dict) else output).strip()
         if not transcript and segments:
             transcript = " ".join(item.text for item in segments)
-        language = normalize_language(output.get("language") if isinstance(output, dict) else None)
+        language = configured_language or "und"
+        if language == "und":
+            language = normalize_language(output.get("language") if isinstance(output, dict) else None)
         if language == "und":
             for chunk in chunks:
                 language = normalize_language(chunk.get("language"))
@@ -169,8 +178,37 @@ class HuggingFaceAudioEmotion(AudioEmotionProvider):
             raw_scores = {str(item["label"]): float(item["score"]) for item in predictions}
             normalized = normalize_scores(raw_scores)
             raw_label, raw_confidence = max(raw_scores.items(), key=lambda item: item[1])
-            label = max(normalized.items(), key=lambda item: item[1])[0]
-            windows.append(EmotionWindowResult(float(start), float(end), label, raw_label, float(raw_confidence), normalized, {"predictions": predictions}))
+            ranked = sorted(
+                ((label, score) for label, score in normalized.items() if label != "uncertain"),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            candidate_label, candidate_confidence = ranked[0]
+            runner_up = ranked[1][1] if len(ranked) > 1 else 0.0
+            margin = candidate_confidence - runner_up
+            accepted = (
+                candidate_confidence >= self.settings.emotion_confidence_threshold
+                and margin >= self.settings.emotion_margin_threshold
+            )
+            label = candidate_label if accepted else "uncertain"
+            windows.append(EmotionWindowResult(
+                float(start),
+                float(end),
+                label,
+                raw_label,
+                float(candidate_confidence),
+                normalized,
+                {
+                    "predictions": predictions,
+                    "raw_top_confidence": float(raw_confidence),
+                    "candidate_label": candidate_label,
+                    "candidate_confidence": float(candidate_confidence),
+                    "confidence_margin": float(margin),
+                    "accepted": accepted,
+                    "confidence_threshold": self.settings.emotion_confidence_threshold,
+                    "margin_threshold": self.settings.emotion_margin_threshold,
+                },
+            ))
         return windows
 
 

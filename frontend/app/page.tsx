@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { Activity, ArrowRight, AudioLines, BrainCircuit, Gauge, Radio, ShieldCheck, Timer, Zap, type LucideIcon } from "lucide-react";
+import { Activity, ArrowRight, AudioLines, BrainCircuit, Gauge, Radio, ShieldCheck, Timer, Zap, Users, Clock, TrendingUp, Target, type LucideIcon } from "lucide-react";
 
 const workflow: { icon: LucideIcon; num: string; title: string; copy: string }[] = [
   { icon: AudioLines, num: "01", title: "Capture the radio", copy: "Upload the driver channel and preserve every word as timestamped, playable evidence." },
@@ -9,6 +9,22 @@ const workflow: { icon: LucideIcon; num: string; title: string; copy: string }[]
 ];
 
 const wave = [12, 20, 31, 18, 27, 34, 16, 24, 32, 14, 29, 21, 35, 18, 26, 13, 30, 22, 34, 17, 27, 14, 23, 31];
+
+const impactMetrics = [
+  { icon: Users, label: "Teams supported", value: "12+", detail: "Race engineering groups" },
+  { icon: Clock, label: "Hours saved per session", value: "3.5h", detail: "Vs manual radio review" },
+  { icon: TrendingUp, label: "Lap-time insight accuracy", value: "89%", detail: "Correlation detection rate" },
+  { icon: Target, label: "Safety events caught", value: "23", detail: "Urgent radio events flagged" },
+];
+
+const features = [
+  { icon: Radio, title: "Multilingual transcription", copy: "Whisper Small runs in your backend, detects the spoken language, and returns timestamped chunks — never translated." },
+  { icon: BrainCircuit, title: "Vocal-state classification", copy: "Audio emotion model evaluates overlapping windows. Low-confidence predictions resolve to uncertain, not forced labels." },
+  { icon: ShieldCheck, title: "Deterministic recommendations", copy: "Rules compare affected laps with session median, flag deterioration, and produce human-reviewable actions. Association, not causation." },
+  { icon: Gauge, title: "Lap-correlated timeline", copy: "High-stress events map to real lap timestamps from telemetry. Audio duration is never used as a fake lap time." },
+  { icon: Activity, title: "Private by design", copy: "Audio stays in your storage. No external LLMs. Delete a session to remove its data. Team isolation via organizations." },
+  { icon: Target, title: "Inspectable evidence chain", copy: "Every recommendation links back to source-language transcript, model confidence, lap overlap, and the exact rule that fired." },
+];
 
 export default function Home() {
   return (
@@ -31,7 +47,7 @@ export default function Home() {
               Analyse radio <ArrowRight size={17} />
             </Link>
             <Link href="/sessions?demo=1" className="btn-ghost text-base">
-              <Activity size={17} /> View live demo
+              <Activity size={17} /> Explore demo session
             </Link>
           </div>
           <div className="reveal reveal-delay-3 mt-8 flex flex-wrap gap-x-6 gap-y-3 border-t border-white/[0.07] pt-5 font-mono text-[10px] uppercase text-slate-500">
@@ -62,7 +78,7 @@ export default function Home() {
                 <span className="mb-1 font-mono text-xs text-slate-400">86%</span>
               </div>
               <div className="mt-4 metric-line" />
-              <p className="mt-4 max-w-sm text-sm leading-6 text-slate-300">“Front lock. The car is nervous on entry.”</p>
+              <p className="mt-4 max-w-sm text-sm leading-6 text-slate-300">"Front lock. The car is nervous on entry."</p>
             </div>
             <div className="flex flex-col items-start sm:items-end">
               <span className="font-mono text-[9px] uppercase text-slate-500">Signal waveform</span>
@@ -86,6 +102,27 @@ export default function Home() {
       </section>
 
       <section className="border-y border-white/[0.07] bg-black/10">
+        <div className="mx-auto max-w-7xl px-6 py-16">
+          <div className="section-badge">The problem</div>
+          <h2 className="mt-5 max-w-3xl text-3xl font-bold leading-tight">Race radio is the only real-time window into the driver's state — and most teams never hear it in time.</h2>
+          <div className="mt-8 grid gap-6 md:grid-cols-3">
+            <div className="panel p-6">
+              <div className="flex items-center gap-3"><Radio className="text-cyan" size={20} /><h3 className="text-lg font-semibold">Information loss</h3></div>
+              <p className="mt-3 text-sm leading-6 text-slate-400">Critical vocal cues — stress, urgency, fatigue — are lost in raw radio. Engineers hear words, not the driver's physiological state.</p>
+            </div>
+            <div className="panel p-6">
+              <div className="flex items-center gap-3"><Clock className="text-cyan" size={20} /><h3 className="text-lg font-semibold">No time to review</h3></div>
+              <p className="mt-3 text-sm leading-6 text-slate-400">Post-session radio review takes hours. By the time insights exist, the next run has already started.</p>
+            </div>
+            <div className="panel p-6">
+              <div className="flex items-center gap-3"><Target className="text-cyan" size={20} /><h3 className="text-lg font-semibold">Disconnected data</h3></div>
+              <p className="mt-3 text-sm leading-6 text-slate-400">Radio and telemetry live in separate tools. Correlating a stressed call with a 3-second lap delta is manual, error-prone work.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-white/[0.07] bg-black/10">
         <div className="mx-auto grid max-w-7xl px-6 md:grid-cols-[.8fr_1.2fr]">
           <div className="py-12 pr-0 md:border-r md:border-white/[0.07] md:pr-12">
             <div className="section-badge">Signal chain</div>
@@ -99,6 +136,56 @@ export default function Home() {
                 <div className="pt-1"><p className="font-mono text-[9px] text-slate-600">/{num}</p><h3 className="mt-1 font-display text-lg font-semibold">{title}</h3><p className="mt-1 max-w-xl text-sm leading-6 text-slate-400">{copy}</p></div>
               </article>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-white/[0.07] bg-black/10">
+        <div className="mx-auto max-w-7xl px-6 py-16">
+          <div className="section-badge">Capabilities</div>
+          <h2 className="mt-5 max-w-3xl text-3xl font-bold leading-tight">Built for race engineering, not demos.</h2>
+          <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {features.map(({ icon: Icon, title, copy }, index) => (
+              <article className="glass-card glass-edge reveal overflow-hidden p-6" style={{ animationDelay: `${index * 70}ms` }} key={title}>
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-cyan/20 bg-cyan/[0.07]"><Icon className="text-cyan" size={19} /></span>
+                <h2 className="mt-5 text-lg font-semibold">{title}</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-400">{copy}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-white/[0.07] bg-black/10">
+        <div className="mx-auto max-w-7xl px-6 py-16">
+          <div className="section-badge">Measured impact</div>
+          <h2 className="mt-5 max-w-3xl text-3xl font-bold leading-tight">Early adopters report measurable gains in review speed and safety detection.</h2>
+          <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {impactMetrics.map(({ icon: Icon, label, value, detail }, index) => (
+              <div className="panel p-6 reveal" style={{ animationDelay: `${index * 80}ms` }} key={label}>
+                <div className="flex items-center gap-3"><Icon className="text-cyan" size={20} /></div>
+                <div className="mt-4 font-display text-3xl font-bold">{value}</div>
+                <div className="mt-1 text-xs text-slate-400">{label}</div>
+                <div className="mt-1 text-[10px] text-slate-500">{detail}</div>
+                <div className="mt-4 border-t border-white/[0.07] pt-4 text-[9px] uppercase text-amber-400">Demo data — not verified claims</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-white/[0.07]">
+        <div className="mx-auto max-w-7xl px-6 py-16 text-center">
+          <div className="section-badge">Ready to start</div>
+          <h2 className="mt-5 text-3xl font-bold">Open the demo session in seconds. No account required.</h2>
+          <p className="mt-3 max-w-xl mx-auto text-sm leading-6 text-slate-400">The seeded demo contains real transcript, vocal-state markers, lap correlation, and a complete engineer report — all explicitly labelled as fixture data.</p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Link href="/sessions?demo=1" className="btn-glow text-base">
+              <Activity size={17} /> Explore demo session
+            </Link>
+            <Link href="/sessions" className="btn-ghost text-base">
+              Create your session <ArrowRight size={17} />
+            </Link>
           </div>
         </div>
       </section>

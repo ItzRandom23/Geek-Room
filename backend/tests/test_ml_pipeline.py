@@ -6,7 +6,7 @@ import pytest
 
 from app.jobs import ANALYSIS_PHASE_PROGRESS
 from app.config import Settings
-from app.services.ai import HuggingFaceSpeechToText, normalize_language
+from app.services.ai import HuggingFaceAudioEmotion, HuggingFaceSpeechToText, normalize_language
 from app.ml.emotion import (
     ManifestValidationError,
     passes_promotion_gate,
@@ -72,27 +72,80 @@ def test_analysis_phase_progress_is_monotonic():
     assert values[-1] == 100
 
 
-def test_whisper_transcription_requests_source_language_and_returns_detection(monkeypatch, tmp_path):
+def test_whisper_forces_configured_english_when_detection_says_spanish(monkeypatch, tmp_path):
     captured = {}
 
     class FakePipeline:
         def __call__(self, audio, **kwargs):
             captured["audio"] = audio
             captured.update(kwargs)
-            return {"text": "  hello driver  ", "language": "<|en|>", "chunks": [{"text": "hello driver", "timestamp": (0.2, 1.3)}]}
+            return {"text": "  hello driver  ", "language": "<|es|>", "chunks": [{"text": "hello driver", "timestamp": (0.2, 1.3)}]}
 
     monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(1600, dtype=np.float32), 16000))
     provider = HuggingFaceSpeechToText(Settings())
     provider._pipeline = FakePipeline()
     result = provider.transcribe(tmp_path / "radio.wav")
     assert captured["return_language"] is True
-    assert captured["generate_kwargs"] == {"task": "transcribe"}
+    assert captured["generate_kwargs"] == {"task": "transcribe", "language": "en"}
     assert result.language == "en"
     assert result.segments[0].text == "hello driver"
+
+
+def test_whisper_can_still_auto_detect_language(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakePipeline:
+        def __call__(self, _audio, **kwargs):
+            captured.update(kwargs)
+            return {"text": "hola", "language": "<|es|>", "chunks": []}
+
+    monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(1600, dtype=np.float32), 16000))
+    provider = HuggingFaceSpeechToText(Settings(stt_language="auto"))
+    provider._pipeline = FakePipeline()
+    result = provider.transcribe(tmp_path / "radio.wav")
+    assert captured["generate_kwargs"] == {"task": "transcribe"}
+    assert result.language == "es"
 
 
 def test_unknown_whisper_language_remains_undetermined():
     assert normalize_language(None) == "und"
     assert normalize_language("auto") == "und"
     assert normalize_language("not-a-language") == "und"
+
+
+def test_audio_baseline_rejects_ambiguous_prediction(monkeypatch, tmp_path):
+    class FakePipeline:
+        def __call__(self, _audio, **_kwargs):
+            return [
+                {"label": "neu", "score": 0.40},
+                {"label": "hap", "score": 0.36},
+                {"label": "ang", "score": 0.14},
+                {"label": "sad", "score": 0.10},
+            ]
+
+    monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(16000, dtype=np.float32), 16000))
+    provider = HuggingFaceAudioEmotion(Settings(emotion_confidence_threshold=0.35, emotion_margin_threshold=0.10))
+    provider._pipeline = FakePipeline()
+    result = provider.analyse(tmp_path / "radio.wav")
+    assert result[0].label == "uncertain"
+    assert result[0].raw["candidate_label"] == "calm"
+    assert result[0].raw["accepted"] is False
+
+
+def test_audio_baseline_preserves_supported_positive_state(monkeypatch, tmp_path):
+    class FakePipeline:
+        def __call__(self, _audio, **_kwargs):
+            return [
+                {"label": "hap", "score": 0.78},
+                {"label": "neu", "score": 0.12},
+                {"label": "ang", "score": 0.06},
+                {"label": "sad", "score": 0.04},
+            ]
+
+    monkeypatch.setattr("app.services.ai.load_audio_samples", lambda _path, _rate: (np.zeros(16000, dtype=np.float32), 16000))
+    provider = HuggingFaceAudioEmotion(Settings())
+    provider._pipeline = FakePipeline()
+    result = provider.analyse(tmp_path / "radio.wav")
+    assert result[0].label == "positive"
+    assert result[0].confidence == 0.78
 
